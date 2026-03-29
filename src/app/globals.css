@@ -394,6 +394,22 @@ body.lights-on::after{content:'';position:fixed;top:0;left:0;right:0;height:120p
 .scene-btn.clicking-off{
   box-shadow:0 0 0 2px rgba(255,255,255,.07),0 0 16px rgba(60,180,255,.2),0 4px 12px rgba(0,0,0,.35);
 }
+.scene-btn.active{
+  border-color:#44ddff;
+  box-shadow:0 0 0 2px rgba(68,221,255,.15),0 0 18px rgba(68,221,255,.2),0 4px 12px rgba(0,0,0,.35);
+}
+.scene-btn.off{border-color:rgba(255,255,255,.25);}
+.scene-btn.off .scene-title{color:#d9dde4;}
+.scene-status{
+  margin-top:10px;
+  font-family:var(--head);
+  font-size:.62rem;
+  font-weight:700;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.scene-status b{color:var(--label);}
 
 /* VOICE */
 .voice-btn{

@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react/no-unescaped-entities, @typescript-eslint/no-explicit-any, react-hooks/preserve-manual-memoization, react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
 
@@ -69,8 +70,9 @@ const names = [
 ];
 
 export default function Home() {
-  const [relayMap, setRelayMap] = useState<Record<string, number>>(defaultMap);
+  const [relayMap] = useState<Record<string, number>>(defaultMap);
   const [relayState, setRelayState] = useState<boolean[]>(new Array(16).fill(false));
+  const [activeScene, setActiveScene] = useState<keyof typeof SCENES | null>(null);
   const [doorOpen, setDoorOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
@@ -171,14 +173,14 @@ export default function Home() {
     try {
       const res = await fetch(`${BASE}?v${p}=${v}`);
       if (!res.ok) showToast(`Blynk Error ${res.status} (V${p})`, true);
-    } catch (e) {
+    } catch {
       showToast("Network Error", true);
     }
   };
 
   // Meter Update
   useEffect(() => {
-    let voltageBase = 230.0;
+    const voltageBase = 230.0;
     let voltageNoise = 0;
 
     const interval = setInterval(() => {
@@ -311,7 +313,7 @@ export default function Home() {
         try {
           const res = await fetch(`${BASE}?v${mappedPin}=${on ? 1 : 0}`);
           if (!res.ok) showToast(`Blynk Error ${res.status}`, true);
-        } catch (e) {
+        } catch {
           showToast("Network Error", true);
           return;
         }
@@ -338,6 +340,7 @@ export default function Home() {
     const shouldTurnOn = new Set(scene.pins);
     const animateOn = scene.pins.length > 0;
     const animClass = animateOn ? "clicking-on" : "clicking-off";
+    setActiveScene(mode);
 
     setRelayState(prev => prev.map((_, idx) => shouldTurnOn.has(idx)));
 
@@ -363,6 +366,17 @@ export default function Home() {
     playClick(animateOn);
     speakFeedback(scene.speech);
     showToast(scene.toast);
+  };
+
+  const handleSceneOff = () => {
+    setActiveScene(null);
+    setClickedBtns(prev => ({ ...prev, "scene-off": "clicking-off" }));
+    setTimeout(() => {
+      setClickedBtns(prev => ({ ...prev, "scene-off": "" }));
+    }, 300);
+    playClick(false);
+    speakFeedback("Scene mode turned off. Manual control is active.");
+    showToast("Scene Mode → OFF (Manual Control)");
   };
 
   // Voice
@@ -745,6 +759,25 @@ export default function Home() {
         <div className="ps-head"><span className="ps-title">Scene / Preset Modes</span><span className="ps-circuit">One Tap · Multi-Relay Automation</span></div>
         <div className="ps-body">
           <div className="scene-grid">
+            <button className={`scene-btn sleep ${activeScene === "sleep" ? "active" : ""} ${clickedBtns["scene-sleep"] || ""}`} onClick={() => handleSceneMode("sleep")}>
+              <span className="scene-title">😴 SLEEP MODE</span>
+              <span className="scene-sub">Turn everything OFF</span>
+            </button>
+            <button className={`scene-btn welcome ${activeScene === "welcome" ? "active" : ""} ${clickedBtns["scene-welcome"] || ""}`} onClick={() => handleSceneMode("welcome")}>
+              <span className="scene-title">🏠 WELCOME MODE</span>
+              <span className="scene-sub">Bedroom + Balcony + Hall + Kitchen lights ON</span>
+            </button>
+            <button className={`scene-btn full ${activeScene === "full" ? "active" : ""} ${clickedBtns["scene-full"] || ""}`} onClick={() => handleSceneMode("full")}>
+              <span className="scene-title">⚡ FULL POWER</span>
+              <span className="scene-sub">Turn all relays ON</span>
+            </button>
+            <button className={`scene-btn off ${activeScene === null ? "active" : ""} ${clickedBtns["scene-off"] || ""}`} onClick={handleSceneOff}>
+              <span className="scene-title">🛑 MODE OFF</span>
+              <span className="scene-sub">Disable preset mode (manual control)</span>
+            </button>
+          </div>
+          <div className="scene-status">
+            Active Mode: <b>{activeScene ? SCENES[activeScene].label : "MANUAL"}</b>
             <button className={`scene-btn sleep ${clickedBtns["scene-sleep"] || ""}`} onClick={() => handleSceneMode("sleep")}>
               <span className="scene-title">😴 SLEEP MODE</span>
               <span className="scene-sub">Turn everything OFF</span>
