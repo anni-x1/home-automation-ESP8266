@@ -352,7 +352,7 @@ body.lights-on::after{content:'';position:fixed;top:0;left:0;right:0;height:120p
 /* SCENE MODES */
 .scene-grid{
   display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-columns:repeat(3,minmax(0,1fr));
   gap:10px;
 }
 @media(max-width:680px){.scene-grid{grid-template-columns:1fr;}}

@@ -340,6 +340,7 @@ export default function Home() {
     const shouldTurnOn = new Set(scene.pins);
     const animateOn = scene.pins.length > 0;
     const animClass = animateOn ? "clicking-on" : "clicking-off";
+    setActiveScene(mode);
 
     setRelayState(prev => prev.map((_, idx) => shouldTurnOn.has(idx)));
 
@@ -362,7 +363,6 @@ export default function Home() {
       blynkSet(mappedPin, shouldTurnOn.has(i) ? 1 : 0);
     }
 
-    setActiveScene(mode);
     playClick(animateOn);
     speakFeedback(scene.speech);
     showToast(scene.toast);
