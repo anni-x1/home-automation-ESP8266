@@ -349,6 +349,68 @@ body.lights-on::after{content:'';position:fixed;top:0;left:0;right:0;height:120p
 .door-status b{color:var(--label);}
 .door-angle{font-family:var(--mono);font-size:.62rem;color:var(--muted);margin-top:4px;text-align:center;letter-spacing:.08em;}
 
+/* SCENE MODES */
+.scene-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+}
+@media(max-width:680px){.scene-grid{grid-template-columns:1fr;}}
+.scene-btn{
+  background:linear-gradient(180deg,#2a3038 0%,#1a2028 100%);
+  border:2px solid #0a1018;
+  border-radius:4px;
+  color:rgba(255,255,255,.9);
+  padding:16px 12px;
+  cursor:pointer;
+  text-align:left;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  box-shadow:0 4px 10px rgba(0,0,0,.25),inset 0 1px 2px rgba(255,255,255,.08);
+  transition:transform .12s, box-shadow .12s, border-color .15s;
+}
+.scene-btn:active{transform:translateY(1px);}
+.scene-btn .scene-title{
+  font-family:var(--head);
+  font-size:.8rem;
+  font-weight:800;
+  letter-spacing:.12em;
+}
+.scene-btn .scene-sub{
+  font-family:var(--head);
+  font-size:.62rem;
+  letter-spacing:.08em;
+  color:var(--muted);
+  text-transform:uppercase;
+}
+.scene-btn.sleep{border-color:rgba(255,90,60,.35);}
+.scene-btn.sleep .scene-title{color:#ff8a6a;}
+.scene-btn.welcome{border-color:rgba(255,200,60,.35);}
+.scene-btn.welcome .scene-title{color:#ffd266;}
+.scene-btn.full{border-color:rgba(70,170,255,.35);}
+.scene-btn.full .scene-title{color:#71bbff;}
+.scene-btn.clicking-on,
+.scene-btn.clicking-off{
+  box-shadow:0 0 0 2px rgba(255,255,255,.07),0 0 16px rgba(60,180,255,.2),0 4px 12px rgba(0,0,0,.35);
+}
+.scene-btn.active{
+  border-color:#44ddff;
+  box-shadow:0 0 0 2px rgba(68,221,255,.15),0 0 18px rgba(68,221,255,.2),0 4px 12px rgba(0,0,0,.35);
+}
+.scene-btn.off{border-color:rgba(255,255,255,.25);}
+.scene-btn.off .scene-title{color:#d9dde4;}
+.scene-status{
+  margin-top:10px;
+  font-family:var(--head);
+  font-size:.62rem;
+  font-weight:700;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.scene-status b{color:var(--label);}
+
 /* VOICE */
 .voice-btn{
   width:100%;padding:14px;background:linear-gradient(180deg,#2a3038 0%,#1a2028 100%);
