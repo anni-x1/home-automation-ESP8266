@@ -39,6 +39,29 @@ const APPLIANCE = [
 ];
 
 const LIGHT_RELAYS = [0, 2, 4, 5, 7];
+const SCENES = {
+  sleep: {
+    key: "sleep",
+    label: "SLEEP MODE",
+    pins: [] as number[],
+    speech: "Activating sleep mode. Turning everything off.",
+    toast: "Sleep Mode → ALL OFF",
+  },
+  welcome: {
+    key: "welcome",
+    label: "WELCOME MODE",
+    pins: [0, 2, 4, 5] as number[],
+    speech: "Welcome mode activated. Entrance and living lights are on.",
+    toast: "Welcome Mode → SELECTED LIGHTS ON",
+  },
+  full: {
+    key: "full",
+    label: "FULL POWER",
+    pins: Array.from({ length: 12 }, (_, i) => i) as number[],
+    speech: "Full power mode activated. Everything is now on.",
+    toast: "Full Power → ALL ON",
+  }
+} as const;
 const names = [
   "Bedroom Lights", "Bedroom Fan", "Balcony Lights", "Hall Fan",
   "Hall Light", "Kitchen Lights", "Kitchen Fan", "Bathroom Lights",
@@ -310,6 +333,38 @@ export default function Home() {
     }
   };
 
+  const handleSceneMode = (mode: keyof typeof SCENES) => {
+    const scene = SCENES[mode];
+    const shouldTurnOn = new Set(scene.pins);
+    const animateOn = scene.pins.length > 0;
+    const animClass = animateOn ? "clicking-on" : "clicking-off";
+
+    setRelayState(prev => prev.map((_, idx) => shouldTurnOn.has(idx)));
+
+    const newClicks: Record<string, string> = { [`scene-${scene.key}`]: animClass };
+    for (let i = 0; i < 12; i++) {
+      newClicks[`r${i}`] = shouldTurnOn.has(i) ? "clicking-on" : "clicking-off";
+    }
+
+    setClickedBtns(prev => ({ ...prev, ...newClicks }));
+    setTimeout(() => {
+      setClickedBtns(prev => {
+        const next = { ...prev };
+        Object.keys(newClicks).forEach(k => (next[k] = ""));
+        return next;
+      });
+    }, 300);
+
+    for (let i = 0; i < 12; i++) {
+      const mappedPin = relayMap[`r${i}`] !== undefined ? relayMap[`r${i}`] : i;
+      blynkSet(mappedPin, shouldTurnOn.has(i) ? 1 : 0);
+    }
+
+    playClick(animateOn);
+    speakFeedback(scene.speech);
+    showToast(scene.toast);
+  };
+
   // Voice
   const processCmd = useCallback((raw: string) => {
     const norm = (s: string) => s
@@ -326,6 +381,9 @@ export default function Home() {
 
     if (/\bopen\b.*\bdoor\b|\bdoor\b.*\bopen\b|\bunlock\b/.test(cmd)) { handleDoor(true); logV('✓ Door opened 🔓', 'action'); return true; }
     if (/\bclose\b.*\bdoor\b|\bdoor\b.*\bclose\b|\block\b/.test(cmd)) { handleDoor(false); logV('✓ Door closed 🔒', 'action'); return true; }
+    if (/\bsleep mode\b|\bgood night\b|\bnight mode\b/.test(cmd)) { handleSceneMode("sleep"); logV('✓ Sleep Mode activated', 'action'); return true; }
+    if (/\bwelcome mode\b|\bi am home\b|\bhome mode\b/.test(cmd)) { handleSceneMode("welcome"); logV('✓ Welcome Mode activated', 'action'); return true; }
+    if (/\bfull power\b|\beverything on\b|\ball on\b/.test(cmd)) { handleSceneMode("full"); logV('✓ Full Power activated', 'action'); return true; }
 
     let intent: boolean | null = null;
     if (/\bturn on\b/.test(cmd)) intent = true;
@@ -682,6 +740,27 @@ export default function Home() {
         </div>
       </div>
 
+      {/* SCENE / PRESET MODES */}
+      <div className="panel-section">
+        <div className="ps-head"><span className="ps-title">Scene / Preset Modes</span><span className="ps-circuit">One Tap · Multi-Relay Automation</span></div>
+        <div className="ps-body">
+          <div className="scene-grid">
+            <button className={`scene-btn sleep ${clickedBtns["scene-sleep"] || ""}`} onClick={() => handleSceneMode("sleep")}>
+              <span className="scene-title">😴 SLEEP MODE</span>
+              <span className="scene-sub">Turn everything OFF</span>
+            </button>
+            <button className={`scene-btn welcome ${clickedBtns["scene-welcome"] || ""}`} onClick={() => handleSceneMode("welcome")}>
+              <span className="scene-title">🏠 WELCOME MODE</span>
+              <span className="scene-sub">Bedroom + Balcony + Hall + Kitchen lights ON</span>
+            </button>
+            <button className={`scene-btn full ${clickedBtns["scene-full"] || ""}`} onClick={() => handleSceneMode("full")}>
+              <span className="scene-title">⚡ FULL POWER</span>
+              <span className="scene-sub">Turn all relays ON</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* DOOR CONTROL */}
       <div className="panel-section">
         <div className="ps-head"><span className="ps-title">Door Control</span><span className="ps-circuit">Servo Motor · V16 · 0°–120°</span></div>
@@ -713,6 +792,12 @@ export default function Home() {
                 <div className="cmd-group-title special">⭐ All Lights</div>
                 <div className="cmd-entry"><span className="cmd-say">"Turn on all lights"</span><span className="cmd-badge badge-all">ALL ON</span></div>
                 <div className="cmd-entry"><span className="cmd-say">"Turn off all lights"</span><span className="cmd-badge badge-all">ALL OFF</span></div>
+              </div>
+              <div className="cmd-group">
+                <div className="cmd-group-title special">🎬 Scene Modes</div>
+                <div className="cmd-entry"><span className="cmd-say">"Sleep mode"</span><span className="cmd-badge badge-all">ALL OFF</span></div>
+                <div className="cmd-entry"><span className="cmd-say">"Welcome mode"</span><span className="cmd-badge badge-all">ENTRY ON</span></div>
+                <div className="cmd-entry"><span className="cmd-say">"Full power"</span><span className="cmd-badge badge-all">ALL ON</span></div>
               </div>
               <div className="cmd-group">
                 <div className="cmd-group-title">🚪 Door</div>
