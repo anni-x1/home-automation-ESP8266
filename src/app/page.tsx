@@ -778,18 +778,6 @@ export default function Home() {
           </div>
           <div className="scene-status">
             Active Mode: <b>{activeScene ? SCENES[activeScene].label : "MANUAL"}</b>
-            <button className={`scene-btn sleep ${clickedBtns["scene-sleep"] || ""}`} onClick={() => handleSceneMode("sleep")}>
-              <span className="scene-title">😴 SLEEP MODE</span>
-              <span className="scene-sub">Turn everything OFF</span>
-            </button>
-            <button className={`scene-btn welcome ${clickedBtns["scene-welcome"] || ""}`} onClick={() => handleSceneMode("welcome")}>
-              <span className="scene-title">🏠 WELCOME MODE</span>
-              <span className="scene-sub">Bedroom + Balcony + Hall + Kitchen lights ON</span>
-            </button>
-            <button className={`scene-btn full ${clickedBtns["scene-full"] || ""}`} onClick={() => handleSceneMode("full")}>
-              <span className="scene-title">⚡ FULL POWER</span>
-              <span className="scene-sub">Turn all relays ON</span>
-            </button>
           </div>
         </div>
       </div>
