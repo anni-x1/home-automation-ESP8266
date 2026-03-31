@@ -75,6 +75,8 @@ export const translations = {
     cmdDoorClose: '"Close the door"',
     cmdOn: '"Turn on ',
     cmdOff: '"Turn off ',
+    suffixOn: '"',
+    suffixOff: '"',
   },
   gu: {
     voiceOn: "🔊 અવાજ ચાલુ",
