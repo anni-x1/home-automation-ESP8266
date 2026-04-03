@@ -2,6 +2,7 @@
 /* eslint-disable react/no-unescaped-entities, @typescript-eslint/no-explicit-any, react-hooks/preserve-manual-memoization, react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import { translations } from "./translations";
 
 const BASE = "/api/blynk/update";
@@ -482,13 +483,6 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [relayState, updateHum]);
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.onvoiceschanged = initVoice;
-      initVoice();
-    }
-  }, [lang]);
-
   const initVoice = useCallback(() => {
     if (typeof window !== "undefined" && window.speechSynthesis) {
       const voices = window.speechSynthesis.getVoices();
@@ -506,6 +500,13 @@ export default function Home() {
       }
     }
   }, [lang]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = initVoice;
+      initVoice();
+    }
+  }, [initVoice]);
 
   const toggleVoice = () => {
     if (!recognitionRef.current) return;
@@ -553,6 +554,9 @@ export default function Home() {
       <button onClick={() => setIsVoiceEnabled(!isVoiceEnabled)} style={{ position: "fixed", top: "10px", right: "10px", zIndex: 1000, background: isVoiceEnabled ? "var(--blue)" : "var(--muted)", border: "2px solid var(--border)", borderRadius: "4px", color: "white", padding: "6px 10px", fontSize: "0.65rem", fontFamily: "var(--head)", fontWeight: 800, letterSpacing: "0.1em", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}>
         <span>{isVoiceEnabled ? t.voiceOn : t.voiceOff}</span>
       </button>
+      <Link href="/relay-setup" style={{ position: "fixed", top: "48px", right: "10px", zIndex: 1000, background: "var(--plate-dark)", border: "2px solid var(--border)", borderRadius: "4px", color: "var(--label)", padding: "6px 10px", fontSize: "0.65rem", fontFamily: "var(--head)", fontWeight: 800, letterSpacing: "0.08em", textDecoration: "none", boxShadow: "0 2px 6px rgba(0,0,0,0.3)", transition: "all 0.2s" }}>
+        RELAY SETUP
+      </Link>
 
       {/* NAMEPLATE */}
       <div className="nameplate">
