@@ -34,453 +34,144 @@ const APPLIANCE = [
   [1500, 0.85], // r9  AC 1.5-ton (V12)
   [750, 0.80], // r10 Water Pump (V14)
   [60, 1.00],  // r11 spare (V15)
-  [60, 1.00],  // r12 spare
-  [60, 1.00],  // r13 spare
-  [60, 1.00],  // r14 spare
-  [60, 1.00],  // r15 spare
 ];
 
-const LIGHT_RELAYS = [0, 2, 4, 5, 7];
+const ROOMS = [
+  { name: 'Bedroom', ids: [0, 1], icon: '🛏️' },
+  { name: 'Hall', ids: [3, 4, 2], icon: '🛋️' },
+  { name: 'Kitchen', ids: [5, 6, 8], icon: '🍳' },
+  { name: 'Utilities', ids: [7, 9, 10, 11], icon: '⚙️' }
+];
 
 export default function Home() {
   const [lang, setLang] = useState<"en" | "gu">("en");
   const [mounted, setMounted] = useState(false);
   const t = translations[lang];
 
-  const [relayMap] = useState<Record<string, number>>(defaultMap);
   const [relayState, setRelayState] = useState<boolean[]>(new Array(16).fill(false));
   const [activeScene, setActiveScene] = useState<string | null>(null);
   const [doorOpen, setDoorOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
-  const [vLog, setVLog] = useState<React.ReactNode>("");
-  const [toast, setToast] = useState<{ msg: string; isErr: boolean; show: boolean }>({ msg: "", isErr: false, show: false });
+  const [vLog, setVLog] = useState<string | React.ReactNode>("");
+  const [toast, setToast] = useState({ msg: "", isErr: false, show: false });
 
   const [meter, setMeter] = useState({
-    voltage: 230.0,
-    current: 0.0,
-    power: 0.0,
-    powerStr: "0.0",
-    powerUnit: "Watts",
-    freq: 50.0,
-    pf: "—",
-    pfPct: 0
+    voltage: 230.0, current: 0.0, power: 0.0, powerStr: "0.0", powerUnit: "W", pf: "0.00", pfPct: 0
   });
-
-  const [clickedBtns, setClickedBtns] = useState<Record<string, string>>({});
 
   const applianceNames = React.useMemo(() => [
     t.bedroomLights, t.bedroomFan, t.balconyLights, t.hallFan,
     t.hallLight, t.kitchenLights, t.kitchenFan, t.bathroomLights,
-    t.fridge, t.ac, t.waterPump, t.spareRelay, "Relay 12", "Relay 13", "Relay 14", "Relay 15"
+    t.fridge, t.ac, t.waterPump, t.spareRelay
   ], [t]);
 
-  const SCENES_DATA = React.useMemo(() => ({
-    sleep: {
-      key: "sleep",
-      label: t.sleepMode,
-      pins: [] as number[],
-      speech: lang === "en" ? "Activating sleep mode. Turning everything off." : "સ્લીપ મોડ ચાલુ. બધું બંધ.",
-      toast: t.sleepMode + " → " + t.allOff,
-    },
-    welcome: {
-      key: "welcome",
-      label: t.welcomeMode,
-      pins: [0, 2, 4, 5] as number[],
-      speech: lang === "en" ? "Welcome mode activated. Entrance and living lights are on." : "વેલકમ મોડ ચાલુ. લાઈટો ચાલુ છે.",
-      toast: t.welcomeMode + " → " + t.entryOn,
-    },
-    full: {
-      key: "full",
-      label: t.fullPower,
-      pins: Array.from({ length: 12 }, (_, i) => i) as number[],
-      speech: lang === "en" ? "Full power mode activated. Everything is now on." : "ફુલ પાવર મોડ ચાલુ. બધું ચાલુ છે.",
-      toast: t.fullPower + " → " + t.allOn,
-    }
-  }), [t, lang]);
+  const SCENES = React.useMemo(() => [
+    { key: 'sleep', label: t.sleepMode, icon: '🌙', color: 'glow-purple', pins: [] },
+    { key: 'welcome', label: t.welcomeMode, icon: '🏠', color: 'glow-blue', pins: [0, 2, 4, 5] },
+    { key: 'full', label: t.fullPower, icon: '⚡', color: 'glow-orange', pins: [0,1,2,3,4,5,6,7,8,9,10,11] }
+  ], [t]);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const humOscRef = useRef<OscillatorNode | null>(null);
   const humGainRef = useRef<GainNode | null>(null);
   const recognitionRef = useRef<any>(null);
-  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const preferredVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
 
-  // Audio Context Init
   const initAudio = () => {
-    if (!audioCtxRef.current) {
-      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    if (audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume();
-    }
+    if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
   };
 
-  // Toast
-  const showToast = useCallback((msg: string, isErr = false) => {
+  const showToast = (msg: string, isErr = false) => {
     setToast({ msg, isErr, show: true });
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = setTimeout(() => {
-      setToast(t => ({ ...t, show: false }));
-    }, 2200);
-  }, []);
+    setTimeout(() => setToast(t => ({ ...t, show: false })), 2500);
+  };
 
-  // Update Hum
-  const updateHum = useCallback((anyOn: boolean) => {
-    if (!audioCtxRef.current) return;
-    if (anyOn && !humOscRef.current) {
-      humOscRef.current = audioCtxRef.current.createOscillator();
-      humGainRef.current = audioCtxRef.current.createGain();
-      humOscRef.current.type = 'sawtooth';
-      humOscRef.current.frequency.value = 50;
-      const f = audioCtxRef.current.createBiquadFilter();
-      f.type = 'lowpass';
-      f.frequency.value = 180;
-      humGainRef.current.gain.value = 0.04;
-      humOscRef.current.connect(f);
-      f.connect(humGainRef.current);
-      humGainRef.current.connect(audioCtxRef.current.destination);
-      humOscRef.current.start();
-    } else if (!anyOn && humOscRef.current) {
-      humOscRef.current.stop();
-      humOscRef.current.disconnect();
-      humGainRef.current?.disconnect();
-      humOscRef.current = null;
-    }
-  }, []);
-
-  // Play Click
-  const playClick = useCallback((isOn: boolean) => {
+  const playClick = (isOn: boolean) => {
     initAudio();
     if (!audioCtxRef.current) return;
-    const t = audioCtxRef.current.currentTime;
-    const layers = [
-      { type: 'sine' as OscillatorType, freqA: isOn ? 150 : 180, freqB: 30, gainA: 0.8, gainB: 0.001, dur: 0.1 },
-      { type: 'square' as OscillatorType, freqA: isOn ? 800 : 1200, freqB: 100, gainA: 0.4, gainB: 0.001, dur: 0.05 },
-      { type: 'sawtooth' as OscillatorType, freqA: 4000, freqB: 4000, gainA: 0.15, gainB: 0.001, dur: 0.03 },
-    ];
-    layers.forEach(l => {
-      const o = audioCtxRef.current!.createOscillator();
-      const g = audioCtxRef.current!.createGain();
-      o.type = l.type;
-      o.frequency.setValueAtTime(l.freqA, t);
-      o.frequency.exponentialRampToValueAtTime(l.freqB, t + l.dur * 0.5);
-      g.gain.setValueAtTime(l.gainA, t);
-      g.gain.exponentialRampToValueAtTime(l.gainB, t + l.dur);
-      o.connect(g);
-      g.connect(audioCtxRef.current!.destination);
-      o.start(t);
-      o.stop(t + l.dur);
-    });
-  }, []);
+    const ctx = audioCtxRef.current;
+    const tm = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(isOn ? 150 : 100, tm);
+    o.frequency.exponentialRampToValueAtTime(1, tm + 0.1);
+    g.gain.setValueAtTime(0.1, tm);
+    g.gain.exponentialRampToValueAtTime(0.01, tm + 0.1);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(tm + 0.1);
+  };
 
-  // Blynk Set
   const blynkSet = async (p: number, v: number) => {
     try {
       const res = await fetch(`${BASE}?v${p}=${v}`);
-      if (!res.ok) showToast(`Blynk Error ${res.status} (V${p})`, true);
-    } catch {
-      showToast("Network Error", true);
-    }
+      if (!res.ok) showToast(`Blynk Error V${p}`, true);
+    } catch { showToast("Network Error", true); }
   };
 
-  // Speak Feedback
-  const speakFeedback = (text: string) => {
-    if (!isVoiceEnabled) return;
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      if (preferredVoiceRef.current) utterance.voice = preferredVoiceRef.current;
-      utterance.rate = 1.0; 
-      utterance.pitch = 1.1; 
-      window.speechSynthesis.speak(utterance);
-    }
+  const speak = (text: string) => {
+    if (!isVoiceEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    if (preferredVoiceRef.current) u.voice = preferredVoiceRef.current;
+    u.rate = 1.0;
+    window.speechSynthesis.speak(u);
   };
 
-  // Handlers
-  const handleSetRelay = useCallback((i: number, on: boolean, silent = false) => {
-    setRelayState(prev => {
-      const next = [...prev];
-      next[i] = on;
-      return next;
-    });
-
-    const btnId = `r${i}`;
-    const animClass = on ? 'clicking-on' : 'clicking-off';
-    setClickedBtns(prev => ({ ...prev, [btnId]: animClass }));
-    setTimeout(() => setClickedBtns(prev => ({ ...prev, [btnId]: "" })), 300);
-
-    const mappedPin = relayMap[btnId] !== undefined ? relayMap[btnId] : i;
-    blynkSet(mappedPin, on ? 1 : 0);
-
+  const handleSetRelay = (i: number, on: boolean, silent = false) => {
+    setRelayState(prev => { const n = [...prev]; n[i] = on; return n; });
+    blynkSet(defaultMap[`r${i}`] ?? i, on ? 1 : 0);
     if (!silent) {
       playClick(on);
-      const action = on ? (lang === "en" ? "Switching on" : "ચાલુ") : (lang === "en" ? "Switching off" : "બંધ");
-      speakFeedback(lang === "en" ? `${action} the ${applianceNames[i]}` : `${applianceNames[i]} ${action}`);
+      const act = on ? (lang === "en" ? "On" : "ચાલુ") : (lang === "en" ? "Off" : "બંધ");
+      speak(lang === "en" ? `${applianceNames[i]} is now ${act}` : `${applianceNames[i]} ${act}`);
       showToast(`${applianceNames[i]} → ${on ? "ON" : "OFF"}`);
     }
-  }, [relayMap, lang, applianceNames, showToast, playClick, speakFeedback]);
+  };
 
-  const handleToggleAllLights = useCallback(() => {
-    const anyOn = LIGHT_RELAYS.some(li => relayState[li]);
-    const on = !anyOn;
-
-    setRelayState(prev => {
-      const next = [...prev];
-      LIGHT_RELAYS.forEach(i => next[i] = on);
-      return next;
-    });
-
-    const animClass = on ? 'clicking-on' : 'clicking-off';
-    const newClicks: Record<string, string> = { "all-lights": animClass };
-    LIGHT_RELAYS.forEach(i => newClicks[`r${i}`] = animClass);
-    setClickedBtns(prev => ({ ...prev, ...newClicks }));
-    setTimeout(() => setClickedBtns(prev => {
-      const next = { ...prev };
-      Object.keys(newClicks).forEach(k => next[k] = "");
-      return next;
-    }), 300);
-
-    (async () => {
-      for (let idx = 0; idx < LIGHT_RELAYS.length; idx++) {
-        if (idx > 0) await new Promise(r => setTimeout(r, 220));
-        const relayIdx = LIGHT_RELAYS[idx];
-        const mappedPin = relayMap[`r${relayIdx}`] !== undefined ? relayMap[`r${relayIdx}`] : relayIdx;
-        blynkSet(mappedPin, on ? 1 : 0);
-      }
-    })();
-
-    playClick(on);
-    const status = on ? (lang === "en" ? "on" : "ચાલુ") : (lang === "en" ? "off" : "બંધ");
-    speakFeedback(lang === "en" ? `Switching ${on ? "on" : "off"} all lights` : `બધી લાઇટો ${status}`);
-    showToast(t.allLights + ' → ' + (on ? 'ON' : 'OFF'));
-  }, [relayState, relayMap, lang, t, showToast, playClick, speakFeedback]);
-
-  const handleDoor = useCallback((open: boolean, silent = false) => {
+  const handleDoor = (open: boolean) => {
     blynkSet(16, open ? 120 : 0);
     setDoorOpen(open);
-    if (!silent) {
-      playClick(open);
-      const action = open ? (lang === "en" ? "Opening" : "ખુલ્લો") : (lang === "en" ? "Closing" : "બંધ");
-      speakFeedback(lang === "en" ? `${action} the door` : `દરવાજો ${action}`);
-      showToast(`${t.doorControl} → ${open ? t.opened + ' 🔓' : t.closed + ' 🔒'}`);
-    }
-  }, [lang, t, showToast, playClick, speakFeedback]);
+    playClick(open);
+    const act = open ? (lang === "en" ? "Opening" : "ખુલ્લો") : (lang === "en" ? "Closing" : "બંધ");
+    speak(lang === "en" ? `${act} the door` : `દરવાજો ${act}`);
+    showToast(`Door → ${open ? "OPEN" : "CLOSED"}`);
+  };
 
-  const handleSceneMode = useCallback((mode: string) => {
-    const scene = (SCENES_DATA as any)[mode];
-    if (!scene) return;
-    const shouldTurnOn = new Set(scene.pins);
-    const animateOn = scene.pins.length > 0;
-    const animClass = animateOn ? "clicking-on" : "clicking-off";
-    setActiveScene(mode);
+  const handleScene = (scene: any) => {
+    const onSet = new Set(scene.pins);
+    setRelayState(prev => prev.map((_, i) => onSet.has(i)));
+    setActiveScene(scene.key);
+    for (let i = 0; i < 12; i++) blynkSet(defaultMap[`r${i}`] ?? i, onSet.has(i) ? 1 : 0);
+    playClick(true);
+    showToast(`${scene.label} Activated`);
+  };
 
-    setRelayState(prev => prev.map((_, idx) => shouldTurnOn.has(idx)));
-
-    const newClicks: Record<string, string> = { [`scene-${scene.key}`]: animClass };
-    for (let i = 0; i < 12; i++) {
-      newClicks[`r${i}`] = shouldTurnOn.has(i) ? "clicking-on" : "clicking-off";
-    }
-
-    setClickedBtns(prev => ({ ...prev, ...newClicks }));
-    setTimeout(() => {
-      setClickedBtns(prev => {
-        const next = { ...prev };
-        Object.keys(newClicks).forEach(k => (next[k] = ""));
-        return next;
-      });
-    }, 300);
-
-    for (let i = 0; i < 12; i++) {
-      const mappedPin = relayMap[`r${i}`] !== undefined ? relayMap[`r${i}`] : i;
-      blynkSet(mappedPin, shouldTurnOn.has(i) ? 1 : 0);
-    }
-
-    playClick(animateOn);
-    speakFeedback(scene.speech);
-    showToast(scene.toast);
-  }, [SCENES_DATA, relayMap, speakFeedback, showToast, playClick]);
-
-  const handleSceneOff = useCallback(() => {
-    setActiveScene(null);
-    setClickedBtns(prev => ({ ...prev, "scene-off": "clicking-off" }));
-    setTimeout(() => {
-      setClickedBtns(prev => ({ ...prev, "scene-off": "" }));
-    }, 300);
-    playClick(false);
-    speakFeedback(lang === "en" ? "Scene mode turned off. Manual control is active." : "સીન મોડ બંધ થયો. મેન્યુઅલ કંટ્રોલ ચાલુ છે.");
-    showToast(t.modeOff + " (" + t.manual + ")");
-  }, [lang, t, showToast, playClick, speakFeedback]);
-
-  // Voice Command Processing
+  // Voice Processing
   const processCmd = useCallback((raw: string) => {
-    const norm = (s: string) => s
-      .toLowerCase()
-      .replace(/\b(the|a|an|please|hey|ok|okay|can you|could you)\b/g, '')
-      .replace(/\bswitch\b/g, 'turn').replace(/\bpower on\b/g, 'turn on')
-      .replace(/\bshut off\b|\bpower off\b/g, 'turn off')
-      .replace(/\bair conditioner\b|\bair conditioning\b|\baircon\b/g, 'ac')
-      .replace(/\brefrigerator\b/g, 'fridge')
-      .replace(/\bpump\b/g, 'water pump')
-      .replace(/\s+/g, ' ').trim();
+    const cmd = raw.toLowerCase();
+    const log = (msg: string, color = 'text-accent-blue') => setVLog(<span className={color}>{msg}</span>);
 
-    const cmd = norm(raw);
-    const logV = (msg: string, cls = '') => setVLog(<span className={cls}>{msg}</span>);
-
-    // Door
-    if (/\bopen\b.*\bdoor\b|\bdoor\b.*\bopen\b|\bunlock\b|darvajo.*kholo|darvajo.*khol|darvajo.*ugado/.test(cmd) || 
-        /દરવાજો.*ખોલો|દરવાજો.*ખોલ|ખોલો.*દરવાજો|દરવાજો.*ઉઘાડો|ઉઘાડો.*દરવાજો/.test(cmd)) { 
-      handleDoor(true); 
-      logV(`✓ ${t.opened} 🔓`, 'action'); 
-      return true; 
-    }
-    if (/\bclose\b.*\bdoor\b|\bdoor\b.*\bclose\b|\block\b|darvajo.*bandh/.test(cmd) || 
-        /દરવાજો.*બંધ|બંધ.*દરવાજો/.test(cmd)) { 
-      handleDoor(false); 
-      logV(`✓ ${t.closed} 🔒`, 'action'); 
-      return true; 
+    if (cmd.includes('door')) {
+      if (cmd.includes('open') || cmd.includes('kholo')) { handleDoor(true); log('✓ Door Opened'); return true; }
+      if (cmd.includes('close') || cmd.includes('bandh')) { handleDoor(false); log('✓ Door Closed'); return true; }
     }
 
-    // Scenes
-    if (/\bsleep mode\b|\bgood night\b|\bnight mode\b|sleep.*mod|good.*night/.test(cmd) || /સ્લીપ.*મોડ|સુઈ.*જવું|સુઈ.*જાઓ/.test(cmd)) { 
-      handleSceneMode("sleep"); 
-      logV(`✓ ${t.sleepMode} activated`, 'action'); 
-      return true; 
-    }
-    if (/\bwelcome mode\b|\bi am home\b|\bhome mode\b|welcome.*mod|home.*mod/.test(cmd) || /વેલકમ.*મોડ|ઘરે.*આવ્યો|ઘરે.*આવી/.test(cmd)) { 
-      handleSceneMode("welcome"); 
-      logV(`✓ ${t.welcomeMode} activated`, 'action'); 
-      return true; 
-    }
-    if (/\bfull power\b|\beverything on\b|\ball on\b|full.*power|badhu.*chalu/.test(cmd) || /બધું.*ચાલુ|ફુલ.*પાવર|બધું.*ખોલો/.test(cmd)) { 
-      handleSceneMode("full"); 
-      logV(`✓ ${t.fullPower} activated`, 'action'); 
-      return true; 
-    }
-
-    let intent: boolean | null = null;
-    if (/\bturn on\b|chalu|on\b/.test(cmd) || /\bચાલુ\b/.test(cmd) || /\bચાલુ કરો\b/.test(cmd)) intent = true;
-    if (/\bturn off\b|bandh|off\b/.test(cmd) || /\bબંધ\b/.test(cmd) || /\bબંધ કરો\b/.test(cmd)) intent = false;
-    
+    const intent = cmd.includes('on') || cmd.includes('chalu') ? true : cmd.includes('off') || cmd.includes('bandh') ? false : null;
     if (intent === null) return false;
 
-    if (/\ball lights?\b|badhi.*light|badhi.*lite/.test(cmd) || /બધી.*લાઇટ|બધી.*લાઈટ/.test(cmd)) {
-      setRelayState(prev => {
-        const next = [...prev];
-        LIGHT_RELAYS.forEach(i => next[i] = intent!);
-        return next;
-      });
-      LIGHT_RELAYS.forEach(i => blynkSet(relayMap[`r${i}`] ?? i, intent! ? 1 : 0));
-      logV(`✓ ${t.allLights} → ${intent ? 'ON' : 'OFF'}`, 'action');
-      return true;
-    }
-
-    const commands: [RegExp, number, string][] = [
-      [/\bbedroom fan\b|bedroom.*pankho|bedroom.*fan|બેડરૂમ.*પંખો/, 1, t.bedroomFan],
-      [/\bbedroom lights?\b|\bbedroom light\b|bedroom.*light|bedroom.*lite|બેડરૂમ.*લાઇટ/, 0, t.bedroomLights],
-      [/\bbalcony\b|balcony.*light|balcony.*lite|બાલ્કની/, 2, t.balconyLights],
-      [/\bhall fan\b|hall.*pankho|hall.*fan|હોલ.*પંખો/, 3, t.hallFan],
-      [/\bhall lights?\b|\bhall light\b|hall.*light|hall.*lite|હોલ.*લાઇટ/, 4, t.hallLight],
-      [/\bkitchen fan\b|kitchen.*pankho|kitchen.*fan|રસોડા.*પંખો/, 6, t.kitchenFan],
-      [/\bkitchen lights?\b|\bkitchen light\b|kitchen.*light|kitchen.*lite|રસોડા.*લાઇટ/, 5, t.kitchenLights],
-      [/\bbathroom\b|bathroom.*light|bathroom.*lite|બાથરૂમ/, 7, t.bathroomLights],
-      [/\bfridge\b|fridge|ફ્રીજ/, 8, t.fridge],
-      [/\bac\b|ac|એસી/, 9, t.ac],
-      [/\bwater pump\b|water.*pump|motor|વોટર.*પંપ|મોટર/, 10, t.waterPump]
+    const items: [string, number][] = [
+      ['bedroom fan', 1], ['bedroom light', 0], ['balcony', 2], ['hall fan', 3], ['hall light', 4],
+      ['kitchen fan', 6], ['kitchen light', 5], ['bathroom', 7], ['fridge', 8], ['ac', 9], ['pump', 10]
     ];
 
-    for (const [regex, idx, name] of commands) {
-      if (regex.test(cmd)) {
-        handleSetRelay(idx, intent);
-        logV(`✓ ${name} → ${intent ? 'ON' : 'OFF'}`, 'action');
-        return true;
-      }
+    for (const [name, idx] of items) {
+      if (cmd.includes(name)) { handleSetRelay(idx, intent); log(`✓ ${applianceNames[idx]} ${intent ? 'ON' : 'OFF'}`); return true; }
     }
     return false;
-  }, [relayMap, lang, t, applianceNames]);
-
-  // Effects
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (mounted) {
-      setVLog(t.awaitingVoice);
-    }
-  }, [mounted, t.awaitingVoice]);
-
-  const setupVoice = useCallback(() => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      setVLog("NOT SUPPORTED");
-      return;
-    }
-    recognitionRef.current = new SR();
-    const r = recognitionRef.current;
-    r.continuous = false; 
-    r.lang = lang === 'en' ? 'en-IN' : 'gu-IN'; 
-    r.interimResults = false; 
-    r.maxAlternatives = 6;
-    r.onresult = (e: any) => {
-      const alts = Array.from({ length: e.results[0].length }, (_, i) => e.results[0][i].transcript.toLowerCase().trim());
-      setVLog(<span className="heard">Heard: "{alts[0]}"</span>);
-      if (!alts.some((t: any) => processCmd(t))) {
-        setVLog(<span className="error">✗ Not recognised: "{alts[0]}"</span>);
-      }
-    };
-    r.onend = () => setIsListening(false);
-    r.onerror = (e: any) => {
-      if (e.error !== 'no-speech') setVLog(<span className="error">Error: {e.error}</span>);
-      setIsListening(false);
-    };
-  }, [processCmd, lang]);
-
-  useEffect(() => {
-    if (mounted) {
-      setupVoice();
-      blynkSet(16, 0); 
-    }
-  }, [setupVoice, mounted]);
-
-  useEffect(() => {
-    const voltageBase = 230.0;
-    let voltageNoise = 0;
-
-    const interval = setInterval(() => {
-      voltageNoise += (Math.random() - 0.5) * 0.6;
-      voltageNoise = Math.max(-3, Math.min(3, voltageNoise));
-      const V = voltageBase + voltageNoise;
-
-      let totalW = 0, totalVA = 0;
-      for (let i = 0; i < 16; i++) {
-        if (!relayState[i]) continue;
-        const [w, pf] = APPLIANCE[i];
-        totalW += w;
-        totalVA += w / pf;
-      }
-
-      const I = totalVA > 0 ? totalVA / V : 0;
-      const F = 50.0 + (Math.random() - 0.5) * 0.12;
-      const PF = totalVA > 0 ? (totalW / totalVA) : null;
-      const pfPct = PF !== null ? PF * 100 : 0;
-
-      setMeter({
-        voltage: V,
-        current: I,
-        power: totalW,
-        powerStr: totalW >= 1000 ? (totalW / 1000).toFixed(2) + 'k' : totalW.toFixed(1),
-        powerUnit: totalW >= 1000 ? 'kW' : 'Watts',
-        freq: F,
-        pf: PF !== null ? PF.toFixed(2) : '—',
-        pfPct
-      });
-
-      updateHum(relayState.some(Boolean));
-    }, 1800);
-
-    return () => clearInterval(interval);
-  }, [relayState, updateHum]);
+  }, [applianceNames, lang]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.speechSynthesis) {
@@ -507,177 +198,183 @@ export default function Home() {
     }
   }, [lang]);
 
-  const toggleVoice = () => {
-    if (!recognitionRef.current) return;
-    if (isListening) {
-      recognitionRef.current.stop();
-      return;
+  useEffect(() => {
+    setMounted(true);
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SR) {
+      recognitionRef.current = new SR();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.lang = lang === 'en' ? 'en-IN' : 'gu-IN';
+      recognitionRef.current.onresult = (e: any) => {
+        const t = e.results[0][0].transcript;
+        setVLog(`Heard: "${t}"`);
+        if (!processCmd(t)) setVLog(<span className="text-accent-red">Not recognized</span>);
+      };
+      recognitionRef.current.onend = () => setIsListening(false);
     }
-    setIsListening(true);
-    initAudio();
-    recognitionRef.current.start();
-  };
-
-  const anyLightOn = LIGHT_RELAYS.some(li => relayState[li]);
-  const allLightsOn = LIGHT_RELAYS.every(li => relayState[li]);
+  }, [lang, processCmd]);
 
   useEffect(() => {
-    if (anyLightOn) document.body.classList.add('lights-on');
-    else document.body.classList.remove('lights-on');
-  }, [anyLightOn]);
-
-  const renderBreaker = (id: string, idx: number, name: string, isLight = false, isWide = false) => {
-    const isOn = relayState[idx];
-    const classes = ["breaker-btn", isLight ? "light-btn" : "", isWide ? "wide" : "", isOn ? "on" : "", clickedBtns[id] || ""].filter(Boolean).join(" ");
-    return (
-      <div className={classes} id={id} onClick={() => handleSetRelay(idx, !isOn)}>
-        <div className="mcb-led"></div>
-        <div className="mcb-slot"><div className="mcb-handle"></div></div>
-        <div className="breaker-name">{name}</div>
-        <div className="breaker-pin">V{relayMap[id] ?? idx}</div>
-      </div>
-    );
-  };
+    if (!mounted) return;
+    const interval = setInterval(() => {
+      let totalW = 0, totalVA = 0;
+      relayState.forEach((on, i) => { if (on && APPLIANCE[i]) { totalW += APPLIANCE[i][0]; totalVA += APPLIANCE[i][0] / APPLIANCE[i][1]; } });
+      const V = 230 + (Math.random() - 0.5) * 2;
+      const I = totalVA / V;
+      setMeter({
+        voltage: V, current: I, power: totalW, pf: totalVA > 0 ? (totalW / totalVA).toFixed(2) : "1.00",
+        pfPct: totalVA > 0 ? (totalW / totalVA) * 100 : 100,
+        powerStr: totalW > 1000 ? (totalW / 1000).toFixed(1) : totalW.toFixed(0),
+        powerUnit: totalW > 1000 ? 'kW' : 'W'
+      });
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [mounted, relayState]);
 
   if (!mounted) return null;
 
   return (
-    <div className="cabinet">
-      {/* LANGUAGE TOGGLE */}
-      <div style={{ position: "fixed", top: "10px", left: "10px", zIndex: 1000, display: "flex", gap: "6px" }}>
-        <button onClick={() => setLang("en")} style={{ background: lang === "en" ? "var(--blue)" : "var(--recess)", border: "2px solid var(--border)", borderRadius: "4px", color: "white", padding: "6px 10px", fontSize: "0.65rem", fontFamily: "var(--head)", fontWeight: 800, cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.3)", transition: "all 0.2s" }}>ENGLISH</button>
-        <button onClick={() => setLang("gu")} style={{ background: lang === "gu" ? "var(--blue)" : "var(--recess)", border: "2px solid var(--border)", borderRadius: "4px", color: "white", padding: "6px 10px", fontSize: "0.65rem", fontFamily: "var(--head)", fontWeight: 800, cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.3)", transition: "all 0.2s" }}>ગુજરાતી</button>
-      </div>
-
-      {/* VOICE TOGGLE */}
-      <button onClick={() => setIsVoiceEnabled(!isVoiceEnabled)} style={{ position: "fixed", top: "10px", right: "10px", zIndex: 1000, background: isVoiceEnabled ? "var(--blue)" : "var(--muted)", border: "2px solid var(--border)", borderRadius: "4px", color: "white", padding: "6px 10px", fontSize: "0.65rem", fontFamily: "var(--head)", fontWeight: 800, letterSpacing: "0.1em", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}>
-        <span>{isVoiceEnabled ? t.voiceOn : t.voiceOff}</span>
-      </button>
-
-      {/* NAMEPLATE */}
-      <div className="nameplate">
-        <div className="np-rivet tl"></div><div className="np-rivet tr"></div><div className="np-rivet bl"></div><div className="np-rivet br"></div>
-        <div className="np-inner">
-          <div className="np-emblem">
-            <svg className="emblem-svg" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="26" cy="26" r="23" stroke="#c8a830" strokeWidth="1.5" fill="none" opacity="0.4" />
-              <g fill="#c8a830" opacity="0.85"><rect x="24.5" y="1" width="3" height="6" rx="1" /><rect x="24.5" y="45" width="3" height="6" rx="1" /><rect x="1" y="24.5" width="6" height="3" rx="1" /><rect x="45" y="24.5" width="6" height="3" rx="1" /><rect x="38.5" y="5.5" width="3" height="6" rx="1" transform="rotate(45 40 8.5)" /><rect x="6.5" y="38.5" width="3" height="6" rx="1" transform="rotate(45 8 41.5)" /><rect x="6.5" y="5.5" width="3" height="6" rx="1" transform="rotate(-45 8 8.5)" /><rect x="38.5" y="38.5" width="3" height="6" rx="1" transform="rotate(-45 40 41.5)" /></g>
-              <circle cx="26" cy="26" r="17" fill="#0e1418" stroke="#c8a830" strokeWidth="1.2" opacity="0.9" /><circle cx="26" cy="26" r="14" stroke="#c8a830" strokeWidth="0.6" fill="none" opacity="0.3" strokeDasharray="3 2" /><path d="M29 10 L20 27 H27 L23 42 L34 23 H27 L31 10 Z" fill="url(#bolt-grad)" filter="url(#bolt-glow)" />
-              <defs><linearGradient id="bolt-grad" x1="26" y1="10" x2="26" y2="42" gradientUnits="userSpaceOnUse"><stop offset="0%" stopColor="#ffe060" /><stop offset="50%" stopColor="#c8a830" /><stop offset="100%" stopColor="#a07820" /></linearGradient><filter id="bolt-glow" x="-40%" y="-20%" width="180%" height="140%"><feGaussianBlur stdDeviation="1.5" result="blur" /><feComposite in="SourceGraphic" in2="blur" operator="over" /></filter></defs>
-            </svg>
-            <div className="emblem-badge">ITI</div>
-          </div>
-          <div className="np-center"><div className="np-govt">{t.govt}</div><div className="np-inst">{t.inst}</div><div className="np-trade">{t.trade}<div className="np-trade-divider"></div></div><div className="np-project">{t.project}</div></div>
-          <div className="np-batch"><div className="np-batch-label">{t.batch}</div><div className="np-batch-num">83</div><div className="np-batch-sect">D–E</div><div className="np-batch-sub">2025–26</div></div>
+    <main className="max-w-xl mx-auto px-6 py-8 pb-32">
+      {/* Header */}
+      <header className="flex justify-between items-center mb-10 animate-in">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Lumina</h1>
+          <p className="text-text-secondary text-sm">Smart Home Console</p>
         </div>
-      </div>
+        <div className="flex gap-2">
+          <button onClick={() => setLang(lang === "en" ? "gu" : "en")} className="glass px-4 py-2 text-xs font-bold glass-hover">
+            {lang === "en" ? "ENGLISH" : "ગુજરાતી"}
+          </button>
+        </div>
+      </header>
 
-      {/* STATUS INDICATORS */}
-      <div className="indicator-row"><div className="pilot-light pl-green"></div><span className="ind-label">{t.power}</span><div className="pilot-light pl-red"></div><span className="ind-label">{t.fault}</span><div className="pilot-light pl-orange"></div><span className="ind-label">{t.manual}</span><div className="pilot-light pl-blue"></div><span className="ind-label">{t.auto}</span><div className="ind-sep"></div><span className="sys-id">PANEL · 16CH · V3.0</span></div>
-
-      {/* 3-PHASE + ENERGY METER */}
-      <div className="panel-section">
-        <div className="ps-head"><span className="ps-title">{t.threePhase}</span><span className="ps-circuit">415V AC · 50Hz · TN-S</span></div>
-        <div className="ps-body" style={{ padding: 0 }}>
-          <div className="phase-row">
-            <div className="phase-unit"><div className="phase-lamp-housing"><div className="phase-jewel jewel-r"></div></div><div className="phase-label r-lbl">R</div><div className="phase-reading">230 V</div></div><div className="phase-divider"></div>
-            <div className="phase-unit"><div className="phase-lamp-housing"><div className="phase-jewel jewel-y"></div></div><div className="phase-label y-lbl">Y</div><div className="phase-reading">231 V</div></div><div className="phase-divider"></div>
-            <div className="phase-unit"><div className="phase-lamp-housing"><div className="phase-jewel jewel-b"></div></div><div className="phase-label b-lbl">B</div><div className="phase-reading">229 V</div></div><div className="phase-divider"></div>
-            <div className="phase-unit" style={{ gap: "10px" }}><div className="phase-spec"><div className="phase-spec-val">415 V</div><div className="phase-spec-unit">Line–Line</div></div><div className="phase-spec"><div className="phase-spec-val">230 V</div><div className="phase-spec-unit">Phase–N</div></div></div>
-          </div>
-          <div style={{ padding: "0 16px 16px" }}>
-            <div className="meter-display">
-              <div className="meter-inner">
-                <div className="meter-title-bar"><span className="meter-title">⬡ {t.energyMonitor}</span><span className="meter-live-dot"></span></div>
-                <div className="meter-grid">
-                  <div className="meter-cell v-cell"><div className="meter-cell-label">{t.voltage}</div><div className="meter-cell-value">{meter.voltage.toFixed(1)}</div><div className="meter-cell-unit">V rms</div></div>
-                  <div className="meter-cell i-cell"><div className="meter-cell-label">{t.current}</div><div className="meter-cell-value">{meter.current.toFixed(2)}</div><div className="meter-cell-unit">A rms</div></div>
-                  <div className="meter-cell p-cell"><div className="meter-cell-label">{t.activePwr}</div><div className="meter-cell-value">{meter.powerStr}</div><div className="meter-cell-unit">{meter.powerUnit}</div></div>
-                  <div className="meter-cell f-cell"><div className="meter-cell-label">{t.frequency}</div><div className="meter-cell-value">{meter.freq.toFixed(1)}</div><div className="meter-cell-unit">Hz</div></div>
-                </div>
-                <div className="meter-pf-row"><span className="meter-pf-label">{t.pf}</span><div className="meter-pf-bar-bg"><div className="meter-pf-bar-fill" style={{ width: `${meter.pfPct}%` }}></div></div><span className="meter-pf-val">{meter.pf}</span></div>
-              </div>
+      {/* Energy Monitor */}
+      <section className="glass p-6 mb-8 animate-in" style={{ animationDelay: '0.1s' }}>
+        <div className="flex justify-between items-end mb-6">
+          <div>
+            <span className="text-text-muted text-[10px] uppercase tracking-[0.2em] block mb-1">Energy Usage</span>
+            <div className="flex items-baseline gap-1">
+              <span className="text-4xl font-mono text-accent-blue">{meter.powerStr}</span>
+              <span className="text-text-secondary font-mono">{meter.powerUnit}</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* LIGHTING */}
-      <div className={`panel-section lighting-section ${anyLightOn ? 'lights-on' : ''}`} id="lighting-section">
-        <div className="ps-head"><span className="ps-title">{t.lighting}</span><span className="ps-circuit">Circuit A · V1 V2 V3 V5 V8</span></div>
-        <div className="ps-body">
-          <div className="breaker-grid">
-            <div className={`breaker-btn light-btn wide ${allLightsOn ? 'on' : ''} ${clickedBtns['all-lights'] || ''}`} onClick={handleToggleAllLights}><div className="mcb-led"></div><div className="mcb-slot"><div className="mcb-handle"></div></div><div className="breaker-name">{t.allLights}</div><div className="breaker-pin">V1·V2·V3·V5·V8</div></div>
-            {renderBreaker("r0", 0, t.bedroomLights, true)}{renderBreaker("r2", 2, t.balconyLights, true)}{renderBreaker("r4", 4, t.hallLight, true)}{renderBreaker("r5", 5, t.kitchenLights, true)}{renderBreaker("r7", 7, t.bathroomLights, true, true)}
+          <div className="text-right">
+            <span className="text-text-muted text-[10px] uppercase tracking-[0.2em] block mb-1">Grid Voltage</span>
+            <span className="text-xl font-mono text-accent-green">{meter.voltage.toFixed(0)}V</span>
           </div>
         </div>
-      </div>
-
-      {/* FAN CIRCUIT */}
-      <div className="panel-section"><div className="ps-head"><span className="ps-title">{t.fanCircuit}</span><span className="ps-circuit">Circuit B · V9 V10 V13</span></div><div className="ps-body"><div className="breaker-grid-3">{renderBreaker("r1", 1, t.bedroomFan)}{renderBreaker("r3", 3, t.hallFan)}{renderBreaker("r6", 6, t.kitchenFan)}</div></div></div>
-
-      {/* APPLIANCES */}
-      <div className="panel-section"><div className="ps-head"><span className="ps-title">{t.appliances}</span><span className="ps-circuit">Circuit C · V11 V12 V14</span></div><div className="ps-body"><div className="breaker-grid-3">{renderBreaker("r8", 8, t.fridge)}{renderBreaker("r9", 9, t.ac)}{renderBreaker("r10", 10, t.waterPump)}</div></div></div>
-
-      {/* EXTRA CONTROLS */}
-      <div className="panel-section"><div className="ps-head"><span className="ps-title">{t.extraControls}</span><span className="ps-circuit">Circuit D · V15</span></div><div className="ps-body"><div className="breaker-grid">{renderBreaker("r11", 11, t.spareRelay)}</div></div></div>
-
-      {/* SCENE / PRESET MODES */}
-      <div className="panel-section">
-        <div className="ps-head"><span className="ps-title">{t.sceneModes}</span><span className="ps-circuit">One Tap · Automation</span></div>
-        <div className="ps-body">
-          <div className="scene-grid">
-            <button className={`scene-btn sleep ${activeScene === "sleep" ? "active" : ""} ${clickedBtns["scene-sleep"] || ""}`} onClick={() => handleSceneMode("sleep")}><span className="scene-title">😴 {t.sleepMode}</span><span className="scene-sub">{t.sleepSub}</span></button>
-            <button className={`scene-btn welcome ${activeScene === "welcome" ? "active" : ""} ${clickedBtns["scene-welcome"] || ""}`} onClick={() => handleSceneMode("welcome")}><span className="scene-title">🏠 {t.welcomeMode}</span><span className="scene-sub">{t.welcomeSub}</span></button>
-            <button className={`scene-btn full ${activeScene === "full" ? "active" : ""} ${clickedBtns["scene-full"] || ""}`} onClick={() => handleSceneMode("full")}><span className="scene-title">⚡ {t.fullPower}</span><span className="scene-sub">{t.fullSub}</span></button>
-            <button className={`scene-btn off ${activeScene === null ? "active" : ""} ${clickedBtns["scene-off"] || ""}`} onClick={handleSceneOff}><span className="scene-title">🛑 {t.modeOff}</span><span className="scene-sub">{t.modeOffSub}</span></button>
+        <div className="grid grid-cols-3 gap-4 pt-4 border-t border-glass-border">
+          <div className="text-center">
+            <span className="text-text-muted text-[10px] block mb-1">Current</span>
+            <span className="text-sm font-mono">{meter.current.toFixed(2)}A</span>
           </div>
-          <div className="scene-status">{t.activeMode}: <b>{activeScene ? (SCENES_DATA as any)[activeScene].label : t.manual}</b></div>
-        </div>
-      </div>
-
-      {/* DOOR CONTROL */}
-      <div className="panel-section">
-        <div className="ps-head"><span className="ps-title">{t.doorControl}</span><span className="ps-circuit">Servo · V16</span></div>
-        <div className="ps-body">
-          <div className="door-row">
-            <button className={`door-btn open-btn ${doorOpen ? 'active' : ''}`} onClick={() => handleDoor(true)}>🔓 &nbsp;{t.open}</button>
-            <button className={`door-btn close-btn ${!doorOpen ? 'active' : ''}`} onClick={() => handleDoor(false)}>🔒 &nbsp;{t.close}</button>
+          <div className="text-center">
+            <span className="text-text-muted text-[10px] block mb-1">Load PF</span>
+            <span className="text-sm font-mono">{meter.pf}</span>
           </div>
-          <div className="door-status">{t.status}: <b>{doorOpen ? t.opened : t.closed}</b></div>
-          <div className="door-angle">{t.servoAngle}: {doorOpen ? '120°' : '0°'}</div>
+          <div className="text-center">
+            <span className="text-text-muted text-[10px] block mb-1">Status</span>
+            <span className="text-xs font-bold text-accent-green">STABLE</span>
+          </div>
         </div>
-      </div>
+      </section>
 
-      {/* VOICE CONTROL */}
-      <div className="panel-section">
-        <div className="ps-head"><span className="ps-title">{t.voiceControl}</span><span className="ps-circuit">{lang === 'en' ? 'en-IN' : 'gu-IN'}</span></div>
-        <div className="ps-body">
-          <button className={`voice-btn ${isListening ? 'listening' : ''}`} onClick={toggleVoice}><span>🎙</span><span>{isListening ? t.listening : t.tapToSpeak}</span></button>
-          <div className="voice-log">{vLog}</div>
-          <div className="cmd-table">
-            <div className="cmd-table-head"><span className="cmd-table-head-title">{t.voiceCommands}</span><span className="cmd-table-head-sub">— {t.speakExactly}</span></div>
-            <div className="cmd-rows">
-              <div className="cmd-group"><div className="cmd-group-title special">⭐ {t.allLights}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdAllOn}</span><span className="cmd-badge badge-all">{t.allOn}</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdAllOff}</span><span className="cmd-badge badge-all">{t.allOff}</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title special">🎬 {t.sceneModes}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdSleep}</span><span className="cmd-badge badge-all">{t.allOff}</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdWelcome}</span><span className="cmd-badge badge-all">{t.entryOn}</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdFull}</span><span className="cmd-badge badge-all">{t.allOn}</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">🚪 {t.doorControl}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdDoorOpen}</span><span className="cmd-badge badge-door">{t.opened}</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdDoorClose}</span><span className="cmd-badge badge-door">{t.closed}</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">💡 {t.bedroomLights}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.bedroomLights}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.bedroomLights}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">🌀 {t.bedroomFan}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.bedroomFan}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.bedroomFan}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">💡 {t.balconyLights}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.balconyLights}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.balconyLights}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">🌀 {t.hallFan}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.hallFan}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.hallFan}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">💡 {t.hallLight}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.hallLight}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.hallLight}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">💡 {t.kitchenLights}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.kitchenLights}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.kitchenLights}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">🌀 {t.kitchenFan}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.kitchenFan}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.kitchenFan}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">💡 {t.bathroomLights}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.bathroomLights}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.bathroomLights}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">🧊 {t.fridge}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.fridge}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.fridge}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">❄️ {t.ac}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.ac}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.ac}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
-              <div className="cmd-group"><div className="cmd-group-title">💧 {t.waterPump}</div><div className="cmd-entry"><span className="cmd-say">{t.cmdOn}{t.waterPump}{t.suffixOn || ""}</span><span className="cmd-badge badge-on">ON</span></div><div className="cmd-entry"><span className="cmd-say">{t.cmdOff}{t.waterPump}{t.suffixOff || ""}</span><span className="cmd-badge badge-off">OFF</span></div></div>
+      {/* Door Control Card */}
+      <section className="mb-10 animate-in" style={{ animationDelay: '0.15s' }}>
+        <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-text-muted mb-4 flex items-center gap-3">
+          <span>🚪</span> Security
+        </h2>
+        <div 
+          onClick={() => handleDoor(!doorOpen)}
+          className={`glass p-6 flex items-center justify-between cursor-pointer device-card ${doorOpen ? 'active glow-orange' : ''}`}
+        >
+          <div className="flex items-center gap-4">
+            <span className="text-3xl">{doorOpen ? '🔓' : '🔒'}</span>
+            <div>
+              <span className="text-text-secondary text-sm font-medium block">Front Entrance</span>
+              <span className={`text-xs font-bold ${doorOpen ? 'text-accent-orange' : 'text-text-muted'}`}>
+                {doorOpen ? 'UNLOCKED' : 'SECURED'}
+              </span>
             </div>
           </div>
+          <button className={`px-6 py-2 rounded-full text-[10px] font-bold border ${doorOpen ? 'border-accent-orange text-accent-orange' : 'border-glass-border text-text-muted'}`}>
+            {doorOpen ? 'CLOSE' : 'OPEN'}
+          </button>
         </div>
+      </section>
+
+      {/* Quick Scenes */}
+      <section className="grid grid-cols-3 gap-4 mb-10 animate-in" style={{ animationDelay: '0.2s' }}>
+        {SCENES.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => handleScene(s)}
+            className={`glass p-4 flex flex-col items-center gap-2 ${activeScene === s.key ? s.color + ' border-glass-border-active bg-white/10' : ''}`}
+          >
+            <span className="text-2xl">{s.icon}</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider">{s.label}</span>
+          </button>
+        ))}
+      </section>
+
+      {/* Rooms */}
+      <div className="space-y-10 animate-in" style={{ animationDelay: '0.3s' }}>
+        {ROOMS.map((room) => (
+          <section key={room.name}>
+            <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-text-muted mb-6 flex items-center gap-3">
+              <span>{room.icon}</span> {room.name}
+            </h2>
+            <div className="grid grid-cols-2 gap-4">
+              {room.ids.map((id) => {
+                const isOn = relayState[id];
+                return (
+                  <div
+                    key={id}
+                    onClick={() => handleSetRelay(id, !isOn)}
+                    className={`glass p-5 flex items-center justify-between cursor-pointer device-card ${isOn ? 'active glow-blue' : ''}`}
+                  >
+                    <div>
+                      <span className="text-text-secondary text-xs font-medium block mb-1 truncate max-w-[100px] sm:max-w-[160px]">{applianceNames[id]}</span>
+                      <span className={`text-[10px] font-bold ${isOn ? 'text-accent-blue' : 'text-text-muted'}`}>
+                        {isOn ? 'ACTIVE' : 'OFF'}
+                      </span>
+                    </div>
+                    <div className={`switch-base ${isOn ? 'active' : ''} glow-blue`}>
+                      <div className="switch-thumb"></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+
       </div>
 
-      <div className={`toast ${toast.show ? 'show' : ''} ${toast.isErr ? 'err' : ''}`}>{toast.msg}</div>
-    </div>
+      {/* Voice Assistant Floating Button */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-4">
+        {vLog && (
+          <div className="glass px-6 py-3 text-xs font-mono mb-2 whitespace-nowrap animate-in">
+            {vLog}
+          </div>
+        )}
+        <button
+          onClick={() => {
+            if (isListening) recognitionRef.current?.stop();
+            else { setIsListening(true); initAudio(); recognitionRef.current?.start(); }
+          }}
+          className={`voice-orb ${isListening ? 'listening' : ''}`}
+        >
+          <span className="text-2xl text-white">🎙️</span>
+        </button>
+      </div>
+
+      {/* Toast Notification */}
+      <div className={`fixed top-8 left-1/2 -translate-x-1/2 glass px-6 py-3 text-sm font-bold tracking-wide transition-all duration-500 z-[100] ${toast.show ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-10'}`}>
+        <span className={toast.isErr ? 'text-accent-red' : 'text-accent-blue'}>
+          {toast.msg}
+        </span>
+      </div>
+    </main>
   );
 }

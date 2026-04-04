@@ -1,9 +1,21 @@
 import type { Metadata } from "next";
+import { Inter, Share_Tech_Mono } from "next/font/google";
 import "./globals.css";
 
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const mono = Share_Tech_Mono({ weight: "400", subsets: ["latin"], variable: "--font-mono" });
+
 export const metadata: Metadata = {
-  title: "ITI Home Automation — Panel Board",
-  description: "Smart Home Automation Project",
+  title: "Lumina Home Console",
+  description: "Smart Home Automation Dashboard",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#05070a",
 };
 
 export default function RootLayout({
@@ -13,15 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&family=Black+Ops+One&family=Share+Tech+Mono&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body>
+      <body className={`${inter.variable} ${mono.variable} antialiased bg-bg-dark text-text-primary min-h-screen selection:bg-accent-blue/30 selection:text-accent-blue`}>
         {children}
       </body>
     </html>
