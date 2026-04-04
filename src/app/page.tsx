@@ -137,11 +137,24 @@ export default function Home() {
     } catch { showToast("Network Error", true); }
   };
 
-  const speak = async (text: string) => {
+  const speak = async (text: string, audioId?: string) => {
     if (!isVoiceEnabled || typeof window === "undefined") return;
 
     try {
-      // Try Gemini AI Natural TTS first
+      // 1. Try Local Pre-generated MP3 first (Fastest & High Quality)
+      if (lang === "en" && audioId) {
+        const localPath = `/assets/tts/en/${audioId}.mp3`;
+        try {
+          const check = await fetch(localPath, { method: 'HEAD' });
+          if (check.ok) {
+            const audio = new Audio(localPath);
+            await audio.play();
+            return;
+          }
+        } catch (e) {}
+      }
+
+      // 2. Try Gemini AI Natural TTS Live Proxy
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -157,7 +170,7 @@ export default function Home() {
         return;
       }
       
-      // Fallback to Browser Native SpeechSynthesis
+      // 3. Fallback to Browser Native SpeechSynthesis
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       if (preferredVoiceRef.current) u.voice = preferredVoiceRef.current;
@@ -167,7 +180,6 @@ export default function Home() {
 
     } catch (err) {
       console.error("TTS Error:", err);
-      // Final Fallback
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       window.speechSynthesis.speak(u);
@@ -180,7 +192,7 @@ export default function Home() {
     if (!silent) {
       playClick(on);
       const act = on ? (lang === "en" ? "On" : "ચાલુ") : (lang === "en" ? "Off" : "બંધ");
-      speak(lang === "en" ? `${applianceNames[i]} is now ${act}` : `${applianceNames[i]} ${act}`);
+      speak(lang === "en" ? `${applianceNames[i]} is now ${act}` : `${applianceNames[i]} ${act}`, `appliance_${i}_${on ? 'on' : 'off'}`);
       showToast(`${applianceNames[i]} → ${on ? "ON" : "OFF"}`);
     }
   };
@@ -190,7 +202,7 @@ export default function Home() {
     setDoorOpen(open);
     playClick(open);
     const act = open ? (lang === "en" ? "Opening" : "ખુલ્લો") : (lang === "en" ? "Closing" : "બંધ");
-    speak(lang === "en" ? `${act} the door` : `દરવાજો ${act}`);
+    speak(lang === "en" ? `${act} the door` : `દરવાજો ${act}`, `door_${open ? 'on' : 'off'}`);
     showToast(`Door → ${open ? "OPEN" : "CLOSED"}`);
   };
 
@@ -198,7 +210,7 @@ export default function Home() {
     if (scene.pins === 'off') {
       setActiveScene(null);
       playClick(false);
-      speak(lang === "en" ? "Scene mode turned off. Manual control is active." : "સીન મોડ બંધ થયો. મેન્યુઅલ કંટ્રોલ ચાલુ છે.");
+      speak(lang === "en" ? "Scene mode turned off. Manual control is active." : "સીન મોડ બંધ થયો. મેન્યુઅલ કંટ્રોલ ચાલુ છે.", 'scene_off');
       showToast("Manual Mode Active");
       return;
     }
@@ -207,7 +219,7 @@ export default function Home() {
     setActiveScene(scene.key);
     for (let i = 0; i < 12; i++) blynkSet(relayMap[`r${i}`] ?? i, onSet.has(i) ? 1 : 0);
     playClick(true);
-    speak(lang === "en" ? `${scene.label} activated` : `${scene.label} ચાલુ`);
+    speak(lang === "en" ? `${scene.label} activated` : `${scene.label} ચાલુ`, `scene_${scene.key}`);
     showToast(`${scene.label} Activated`);
   };
 
@@ -238,7 +250,7 @@ export default function Home() {
         gu: `બધી લાઇટો ${intent ? 'ચાલુ' : 'બંધ'}`,
         hi: `सभी लाइटें ${intent ? 'चालू' : 'बंद'} कर दी गई हैं`
       };
-      speak(talkback[lang]);
+      speak(talkback[lang], `group_lights_${intent ? 'on' : 'off'}`);
       log(`✓ All Lights ${intent ? 'ON' : 'OFF'}`);
       return true;
     }
@@ -252,7 +264,7 @@ export default function Home() {
         gu: `બધા પંખા ${intent ? 'ચાલુ' : 'બંધ'}`,
         hi: `सभी पंखे ${intent ? 'चालू' : 'बंद'} कर दिए गए हैं`
       };
-      speak(talkback[lang]);
+      speak(talkback[lang], `group_fans_${intent ? 'on' : 'off'}`);
       log(`✓ All Fans ${intent ? 'ON' : 'OFF'}`);
       return true;
     }
@@ -266,7 +278,7 @@ export default function Home() {
         gu: `બધા સાધનો ${intent ? 'ચાલુ' : 'બંધ'}`,
         hi: `सभी उपकरण ${intent ? 'चालू' : 'बंद'} कर दिए गए हैं`
       };
-      speak(talkback[lang]);
+      speak(talkback[lang], `group_apps_${intent ? 'on' : 'off'}`);
       log(`✓ All Appliances ${intent ? 'ON' : 'OFF'}`);
       return true;
     }
