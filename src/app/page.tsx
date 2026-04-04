@@ -137,13 +137,41 @@ export default function Home() {
     } catch { showToast("Network Error", true); }
   };
 
-  const speak = (text: string) => {
-    if (!isVoiceEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    if (preferredVoiceRef.current) u.voice = preferredVoiceRef.current;
-    u.rate = 1.0;
-    window.speechSynthesis.speak(u);
+  const speak = async (text: string) => {
+    if (!isVoiceEnabled || typeof window === "undefined") return;
+
+    try {
+      // Try Gemini AI Natural TTS first
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, lang })
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => URL.revokeObjectURL(url);
+        await audio.play();
+        return;
+      }
+      
+      // Fallback to Browser Native SpeechSynthesis
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      if (preferredVoiceRef.current) u.voice = preferredVoiceRef.current;
+      u.rate = 1.0;
+      u.lang = lang === "en" ? "en-US" : lang === "gu" ? "gu-IN" : "hi-IN";
+      window.speechSynthesis.speak(u);
+
+    } catch (err) {
+      console.error("TTS Error:", err);
+      // Final Fallback
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      window.speechSynthesis.speak(u);
+    }
   };
 
   const handleSetRelay = (i: number, on: boolean, silent = false) => {
