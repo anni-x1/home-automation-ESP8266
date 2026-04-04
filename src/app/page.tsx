@@ -44,9 +44,14 @@ const ROOMS = [
 ];
 
 export default function Home() {
+  const [currentTab, setCurrentTab] = useState<'home' | 'settings'>('home');
   const [lang, setLang] = useState<"en" | "gu">("en");
   const [mounted, setMounted] = useState(false);
   const t = translations[lang];
+
+  // Config State
+  const [relayMap, setRelayMap] = useState<Record<string, number>>(defaultMap);
+  const [editMap, setEditMap] = useState<Record<string, number>>({});
 
   const [relayState, setRelayState] = useState<boolean[]>(new Array(16).fill(false));
   const [activeScene, setActiveScene] = useState<string | null>(null);
@@ -69,14 +74,35 @@ export default function Home() {
   const SCENES = React.useMemo(() => [
     { key: 'sleep', label: t.sleepMode, icon: '🌙', color: 'glow-purple', pins: [] },
     { key: 'welcome', label: t.welcomeMode, icon: '🏠', color: 'glow-blue', pins: [0, 2, 4, 5] },
-    { key: 'full', label: t.fullPower, icon: '⚡', color: 'glow-orange', pins: [0,1,2,3,4,5,6,7,8,9,10,11] }
+    { key: 'full', label: t.fullPower, icon: '⚡', color: 'glow-orange', pins: [0,1,2,3,4,5,6,7,8,9,10,11] },
+    { key: 'off', label: t.modeOff || 'Mode Off', icon: '🛑', color: 'glow-red', pins: 'off' }
   ], [t]);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const humOscRef = useRef<OscillatorNode | null>(null);
-  const humGainRef = useRef<GainNode | null>(null);
   const recognitionRef = useRef<any>(null);
   const preferredVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+
+  // Load configuration on mount
+  useEffect(() => {
+    setMounted(true);
+    const saved = localStorage.getItem('lumina_relay_map');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setRelayMap(parsed);
+        setEditMap(parsed);
+      } catch (e) {}
+    } else {
+      setEditMap(defaultMap);
+    }
+  }, []);
+
+  const saveRelayMap = () => {
+    setRelayMap(editMap);
+    localStorage.setItem('lumina_relay_map', JSON.stringify(editMap));
+    showToast("Pin Mapping Saved!");
+    setCurrentTab('home');
+  };
 
   const initAudio = () => {
     if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -122,7 +148,7 @@ export default function Home() {
 
   const handleSetRelay = (i: number, on: boolean, silent = false) => {
     setRelayState(prev => { const n = [...prev]; n[i] = on; return n; });
-    blynkSet(defaultMap[`r${i}`] ?? i, on ? 1 : 0);
+    blynkSet(relayMap[`r${i}`] ?? i, on ? 1 : 0);
     if (!silent) {
       playClick(on);
       const act = on ? (lang === "en" ? "On" : "ચાલુ") : (lang === "en" ? "Off" : "બંધ");
@@ -132,7 +158,7 @@ export default function Home() {
   };
 
   const handleDoor = (open: boolean) => {
-    blynkSet(16, open ? 120 : 0);
+    blynkSet(relayMap['door'] ?? 16, open ? 120 : 0);
     setDoorOpen(open);
     playClick(open);
     const act = open ? (lang === "en" ? "Opening" : "ખુલ્લો") : (lang === "en" ? "Closing" : "બંધ");
@@ -141,15 +167,22 @@ export default function Home() {
   };
 
   const handleScene = (scene: any) => {
+    if (scene.pins === 'off') {
+      setActiveScene(null);
+      playClick(false);
+      speak(lang === "en" ? "Scene mode turned off. Manual control is active." : "સીન મોડ બંધ થયો. મેન્યુઅલ કંટ્રોલ ચાલુ છે.");
+      showToast("Manual Mode Active");
+      return;
+    }
     const onSet = new Set(scene.pins);
     setRelayState(prev => prev.map((_, i) => onSet.has(i)));
     setActiveScene(scene.key);
-    for (let i = 0; i < 12; i++) blynkSet(defaultMap[`r${i}`] ?? i, onSet.has(i) ? 1 : 0);
+    for (let i = 0; i < 12; i++) blynkSet(relayMap[`r${i}`] ?? i, onSet.has(i) ? 1 : 0);
     playClick(true);
+    speak(lang === "en" ? `${scene.label} activated` : `${scene.label} ચાલુ`);
     showToast(`${scene.label} Activated`);
   };
 
-  // Voice Processing
   const processCmd = useCallback((raw: string) => {
     const cmd = raw.toLowerCase();
     const log = (msg: string, color = 'text-accent-blue') => setVLog(<span className={color}>{msg}</span>);
@@ -199,7 +232,6 @@ export default function Home() {
   }, [lang]);
 
   useEffect(() => {
-    setMounted(true);
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SR) {
       recognitionRef.current = new SR();
@@ -234,147 +266,232 @@ export default function Home() {
   if (!mounted) return null;
 
   return (
-    <main className="max-w-xl mx-auto px-6 py-8 pb-32">
-      {/* Header */}
-      <header className="flex justify-between items-center mb-10 animate-in">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Lumina</h1>
-          <p className="text-text-secondary text-sm">Smart Home Console</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setLang(lang === "en" ? "gu" : "en")} className="glass px-4 py-2 text-xs font-bold glass-hover">
-            {lang === "en" ? "ENGLISH" : "ગુજરાતી"}
-          </button>
-        </div>
-      </header>
-
-      {/* Energy Monitor */}
-      <section className="glass p-6 mb-8 animate-in" style={{ animationDelay: '0.1s' }}>
-        <div className="flex justify-between items-end mb-6">
-          <div>
-            <span className="text-text-muted text-[10px] uppercase tracking-[0.2em] block mb-1">Energy Usage</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-4xl font-mono text-accent-blue">{meter.powerStr}</span>
-              <span className="text-text-secondary font-mono">{meter.powerUnit}</span>
-            </div>
-          </div>
-          <div className="text-right">
-            <span className="text-text-muted text-[10px] uppercase tracking-[0.2em] block mb-1">Grid Voltage</span>
-            <span className="text-xl font-mono text-accent-green">{meter.voltage.toFixed(0)}V</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-4 pt-4 border-t border-glass-border">
-          <div className="text-center">
-            <span className="text-text-muted text-[10px] block mb-1">Current</span>
-            <span className="text-sm font-mono">{meter.current.toFixed(2)}A</span>
-          </div>
-          <div className="text-center">
-            <span className="text-text-muted text-[10px] block mb-1">Load PF</span>
-            <span className="text-sm font-mono">{meter.pf}</span>
-          </div>
-          <div className="text-center">
-            <span className="text-text-muted text-[10px] block mb-1">Status</span>
-            <span className="text-xs font-bold text-accent-green">STABLE</span>
-          </div>
-        </div>
-      </section>
-
-      {/* Door Control Card */}
-      <section className="mb-10 animate-in" style={{ animationDelay: '0.15s' }}>
-        <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-text-muted mb-4 flex items-center gap-3">
-          <span>🚪</span> Security
-        </h2>
-        <div 
-          onClick={() => handleDoor(!doorOpen)}
-          className={`glass p-6 flex items-center justify-between cursor-pointer device-card ${doorOpen ? 'active glow-orange' : ''}`}
-        >
-          <div className="flex items-center gap-4">
-            <span className="text-3xl">{doorOpen ? '🔓' : '🔒'}</span>
-            <div>
-              <span className="text-text-secondary text-sm font-medium block">Front Entrance</span>
-              <span className={`text-xs font-bold ${doorOpen ? 'text-accent-orange' : 'text-text-muted'}`}>
-                {doorOpen ? 'UNLOCKED' : 'SECURED'}
-              </span>
-            </div>
-          </div>
-          <button className={`px-6 py-2 rounded-full text-[10px] font-bold border ${doorOpen ? 'border-accent-orange text-accent-orange' : 'border-glass-border text-text-muted'}`}>
-            {doorOpen ? 'CLOSE' : 'OPEN'}
-          </button>
-        </div>
-      </section>
-
-      {/* Quick Scenes */}
-      <section className="grid grid-cols-3 gap-4 mb-10 animate-in" style={{ animationDelay: '0.2s' }}>
-        {SCENES.map((s) => (
-          <button
-            key={s.key}
-            onClick={() => handleScene(s)}
-            className={`glass p-4 flex flex-col items-center gap-2 ${activeScene === s.key ? s.color + ' border-glass-border-active bg-white/10' : ''}`}
-          >
-            <span className="text-2xl">{s.icon}</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider">{s.label}</span>
-          </button>
-        ))}
-      </section>
-
-      {/* Rooms */}
-      <div className="space-y-10 animate-in" style={{ animationDelay: '0.3s' }}>
-        {ROOMS.map((room) => (
-          <section key={room.name}>
-            <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-text-muted mb-6 flex items-center gap-3">
-              <span>{room.icon}</span> {room.name}
-            </h2>
-            <div className="grid grid-cols-2 gap-4">
-              {room.ids.map((id) => {
-                const isOn = relayState[id];
-                return (
-                  <div
-                    key={id}
-                    onClick={() => handleSetRelay(id, !isOn)}
-                    className={`glass p-5 flex items-center justify-between cursor-pointer device-card ${isOn ? 'active glow-blue' : ''}`}
-                  >
-                    <div>
-                      <span className="text-text-secondary text-xs font-medium block mb-1 truncate max-w-[100px] sm:max-w-[160px]">{applianceNames[id]}</span>
-                      <span className={`text-[10px] font-bold ${isOn ? 'text-accent-blue' : 'text-text-muted'}`}>
-                        {isOn ? 'ACTIVE' : 'OFF'}
-                      </span>
-                    </div>
-                    <div className={`switch-base ${isOn ? 'active' : ''} glow-blue`}>
-                      <div className="switch-thumb"></div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-
+    <>
+      {/* Ambient Glassmorphism Background Elements */}
+      <div className="ambient-bg">
+        <div className="ambient-blob blob-1"></div>
+        <div className="ambient-blob blob-2"></div>
+        <div className="ambient-blob blob-3"></div>
       </div>
 
-      {/* Voice Assistant Floating Button */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-4">
-        {vLog && (
-          <div className="glass px-6 py-3 text-xs font-mono mb-2 whitespace-nowrap animate-in">
-            {vLog}
+      <main className="max-w-md mx-auto px-6 py-8 pb-40">
+        
+        {/* App Header */}
+        <header className="flex justify-between items-center mb-10 animate-in">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Lumina</h1>
+            <p className="text-text-secondary text-sm">Smart Home Console</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setLang(lang === "en" ? "gu" : "en")} className="glass px-4 py-2 text-xs font-bold hover:text-accent-blue transition-colors">
+              {lang === "en" ? "EN" : "GU"}
+            </button>
+          </div>
+        </header>
+
+        {currentTab === 'home' ? (
+          <div className="animate-in fade-in zoom-in duration-300">
+            {/* Energy Monitor */}
+            <section className="glass p-6 mb-8" style={{ animationDelay: '0.1s' }}>
+              <div className="flex justify-between items-end mb-6">
+                <div>
+                  <span className="text-text-muted text-[10px] uppercase tracking-[0.2em] block mb-1">Energy Usage</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-mono text-accent-blue">{meter.powerStr}</span>
+                    <span className="text-text-secondary font-mono">{meter.powerUnit}</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-text-muted text-[10px] uppercase tracking-[0.2em] block mb-1">Grid Voltage</span>
+                  <span className="text-xl font-mono text-accent-green">{meter.voltage.toFixed(0)}V</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4 pt-4 border-t border-glass-border">
+                <div className="text-center">
+                  <span className="text-text-muted text-[10px] block mb-1">Current</span>
+                  <span className="text-sm font-mono">{meter.current.toFixed(2)}A</span>
+                </div>
+                <div className="text-center">
+                  <span className="text-text-muted text-[10px] block mb-1">Load PF</span>
+                  <span className="text-sm font-mono">{meter.pf}</span>
+                </div>
+                <div className="text-center">
+                  <span className="text-text-muted text-[10px] block mb-1">Status</span>
+                  <span className="text-xs font-bold text-accent-green">STABLE</span>
+                </div>
+              </div>
+            </section>
+
+            {/* Door Control Card */}
+            <section className="mb-10" style={{ animationDelay: '0.15s' }}>
+              <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-text-muted mb-4 flex items-center gap-3">
+                <span>🚪</span> Security
+              </h2>
+              <div 
+                onClick={() => handleDoor(!doorOpen)}
+                className={`glass p-6 flex items-center justify-between cursor-pointer device-card ${doorOpen ? 'active glow-orange' : ''}`}
+              >
+                <div className="flex items-center gap-4">
+                  <span className="text-3xl drop-shadow-md">{doorOpen ? '🔓' : '🔒'}</span>
+                  <div>
+                    <span className="text-text-secondary text-sm font-medium block">Front Entrance</span>
+                    <span className={`text-[10px] font-bold ${doorOpen ? 'text-accent-orange' : 'text-text-muted'}`}>
+                      {doorOpen ? 'UNLOCKED' : 'SECURED'}
+                    </span>
+                  </div>
+                </div>
+                <div className={`switch-base ${doorOpen ? 'active' : ''} glow-orange`}>
+                  <div className="switch-thumb"></div>
+                </div>
+              </div>
+            </section>
+
+            {/* Quick Scenes */}
+            <section className="grid grid-cols-2 gap-4 mb-10" style={{ animationDelay: '0.2s' }}>
+              {SCENES.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => handleScene(s)}
+                  className={`glass p-4 flex flex-col items-center justify-center gap-3 ${activeScene === s.key ? s.color + ' border-glass-border-active bg-white/10' : ''}`}
+                >
+                  <span className="text-3xl drop-shadow-lg">{s.icon}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest">{s.label}</span>
+                </button>
+              ))}
+            </section>
+
+            {/* Rooms */}
+            <div className="space-y-10" style={{ animationDelay: '0.3s' }}>
+              {ROOMS.map((room) => (
+                <section key={room.name}>
+                  <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-text-muted mb-6 flex items-center gap-3">
+                    <span>{room.icon}</span> {room.name}
+                  </h2>
+                  <div className="grid grid-cols-2 gap-4">
+                    {room.ids.map((id) => {
+                      const isOn = relayState[id];
+                      return (
+                        <div
+                          key={id}
+                          onClick={() => handleSetRelay(id, !isOn)}
+                          className={`glass p-5 flex flex-col justify-between cursor-pointer device-card min-h-[110px] ${isOn ? 'active glow-blue' : ''}`}
+                        >
+                          <div className="flex justify-between items-start w-full">
+                            <div className={`switch-base ${isOn ? 'active' : ''} glow-blue`}>
+                              <div className="switch-thumb"></div>
+                            </div>
+                            <span className={`text-[10px] font-bold ${isOn ? 'text-accent-blue' : 'text-text-muted'}`}>
+                              {isOn ? 'ON' : 'OFF'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-text-primary text-sm font-medium block truncate mt-4">{applianceNames[id]}</span>
+                            <span className="text-text-muted font-mono text-[10px]">PIN V{relayMap[`r${id}`] ?? id}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            {/* Voice Assistant Floating Log */}
+            <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-4 pointer-events-none">
+              {vLog && (
+                <div className="glass px-6 py-3 text-xs font-mono mb-2 whitespace-nowrap animate-in">
+                  {vLog}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="animate-in fade-in zoom-in duration-300 space-y-6">
+            {/* Settings View */}
+            <header className="mb-8">
+              <h2 className="text-2xl font-bold tracking-tight">Pin Setup</h2>
+              <p className="text-text-secondary text-sm mt-1">Map UI buttons to Blynk V-Pins</p>
+            </header>
+
+            <div className="grid grid-cols-1 gap-3 mb-10 pb-6 border-b border-glass-border">
+              {applianceNames.map((name, i) => (
+                <div key={i} className="glass p-4 flex items-center justify-between">
+                  <span className="text-sm font-medium text-text-primary truncate max-w-[180px]">{name}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-accent-blue font-mono text-[10px] tracking-widest">V-PIN</span>
+                    <input
+                      type="number"
+                      className="bg-black/40 border border-glass-border rounded-lg w-16 px-2 py-1.5 text-center font-mono text-white outline-none focus:border-accent-blue transition-colors"
+                      value={editMap[`r${i}`] !== undefined ? editMap[`r${i}`] : defaultMap[`r${i}`]}
+                      onChange={(e) => setEditMap({ ...editMap, [`r${i}`]: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                </div>
+              ))}
+              
+              {/* Door Setting */}
+              <div className="glass p-4 flex items-center justify-between border border-accent-orange/30 bg-accent-orange/5 mt-4">
+                <span className="text-sm font-medium text-accent-orange truncate max-w-[180px]">Front Entrance Door</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-accent-orange font-mono text-[10px] tracking-widest">V-PIN</span>
+                  <input
+                    type="number"
+                    className="bg-black/40 border border-accent-orange/50 rounded-lg w-16 px-2 py-1.5 text-center font-mono text-white outline-none focus:border-accent-orange transition-colors"
+                    value={editMap['door'] !== undefined ? editMap['door'] : 16}
+                    onChange={(e) => setEditMap({ ...editMap, 'door': parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button onClick={saveRelayMap} className="w-full glass p-5 flex justify-center items-center gap-3 text-accent-green hover:bg-accent-green/10 transition-colors border-accent-green/30">
+               <span className="text-xl">💾</span>
+               <span className="font-bold tracking-widest uppercase text-sm">Save Configuration</span>
+            </button>
+            <button onClick={() => { setEditMap(defaultMap); }} className="w-full glass p-4 flex justify-center items-center gap-3 text-text-secondary mt-3">
+               <span className="font-bold tracking-widest uppercase text-xs">Reset Defaults</span>
+            </button>
           </div>
         )}
-        <button
-          onClick={() => {
-            if (isListening) recognitionRef.current?.stop();
-            else { setIsListening(true); initAudio(); recognitionRef.current?.start(); }
-          }}
-          className={`voice-orb ${isListening ? 'listening' : ''}`}
-        >
-          <span className="text-2xl text-white">🎙️</span>
-        </button>
-      </div>
+      </main>
+
+      {/* Bottom Navigation Bar */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 px-6 pb-8 pt-2 pointer-events-none">
+        <div className="glass max-w-md mx-auto rounded-[32px] flex justify-around items-center px-4 py-2 bg-black/50 backdrop-blur-2xl border border-white/10 shadow-[0_-8px_32px_rgba(0,0,0,0.5)] pointer-events-auto">
+          <button 
+            onClick={() => setCurrentTab('home')} 
+            className={`flex-1 flex flex-col items-center gap-1.5 py-3 transition-colors ${currentTab === 'home' ? 'text-accent-blue drop-shadow-[0_0_8px_rgba(0,242,255,0.8)]' : 'text-text-muted hover:text-white'}`}
+          >
+            <span className="text-2xl mb-1">🏠</span>
+            <span className="text-[9px] font-bold tracking-widest uppercase">Home</span>
+          </button>
+          
+          <div className="flex-1 flex justify-center">
+            <button
+              onClick={() => {
+                if (isListening) recognitionRef.current?.stop();
+                else { setIsListening(true); initAudio(); recognitionRef.current?.start(); }
+              }}
+              className={`voice-orb ${isListening ? 'listening' : ''}`}
+            >
+              <span className="text-xl text-white drop-shadow-md">🎙️</span>
+            </button>
+          </div>
+
+          <button 
+            onClick={() => setCurrentTab('settings')} 
+            className={`flex-1 flex flex-col items-center gap-1.5 py-3 transition-colors ${currentTab === 'settings' ? 'text-accent-blue drop-shadow-[0_0_8px_rgba(0,242,255,0.8)]' : 'text-text-muted hover:text-white'}`}
+          >
+            <span className="text-2xl mb-1">⚙️</span>
+            <span className="text-[9px] font-bold tracking-widest uppercase">Setup</span>
+          </button>
+        </div>
+      </nav>
 
       {/* Toast Notification */}
-      <div className={`fixed top-8 left-1/2 -translate-x-1/2 glass px-6 py-3 text-sm font-bold tracking-wide transition-all duration-500 z-[100] ${toast.show ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-10'}`}>
-        <span className={toast.isErr ? 'text-accent-red' : 'text-accent-blue'}>
-          {toast.msg}
-        </span>
+      <div className={`fixed top-8 left-1/2 -translate-x-1/2 glass px-6 py-3 text-sm font-bold tracking-wide transition-all duration-500 z-[100] shadow-[0_4px_24px_rgba(0,0,0,0.8)] border-t-2 ${toast.show ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-10'} ${toast.isErr ? 'border-accent-red text-accent-red' : 'border-accent-blue text-accent-blue'}`}>
+        {toast.msg}
       </div>
-    </main>
+    </>
   );
 }
