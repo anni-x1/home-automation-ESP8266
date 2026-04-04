@@ -45,7 +45,7 @@ const ROOMS = [
 
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'home' | 'settings'>('home');
-  const [lang, setLang] = useState<"en" | "gu">("en");
+  const [lang, setLang] = useState<"en" | "gu" | "hi">("en");
   const [mounted, setMounted] = useState(false);
   const t = translations[lang];
 
@@ -184,27 +184,91 @@ export default function Home() {
   };
 
   const processCmd = useCallback((raw: string) => {
-    const cmd = raw.toLowerCase();
+    const cmd = raw.toLowerCase().trim();
     const log = (msg: string, color = 'text-accent-blue') => setVLog(<span className={color}>{msg}</span>);
 
-    if (cmd.includes('door')) {
-      if (cmd.includes('open') || cmd.includes('kholo')) { handleDoor(true); log('✓ Door Opened'); return true; }
-      if (cmd.includes('close') || cmd.includes('bandh')) { handleDoor(false); log('✓ Door Closed'); return true; }
+    // Intent detection (loose)
+    const isOn = cmd.includes('on') || cmd.includes('chalu') || cmd.includes('open') || cmd.includes('kholo') || cmd.includes('jalao') || cmd.includes('start');
+    const isOff = cmd.includes('off') || cmd.includes('bandh') || cmd.includes('close') || cmd.includes('stop') || cmd.includes('bujhao');
+    
+    if (!isOn && !isOff) return false;
+    const intent = isOn; // true for ON, false for OFF
+
+    // Door check
+    if (cmd.includes('door') || cmd.includes('darvajo') || cmd.includes('darvaja') || cmd.includes('entrance')) {
+      handleDoor(intent);
+      log(`✓ Door ${intent ? 'Opened' : 'Closed'}`);
+      return true;
     }
 
-    const intent = cmd.includes('on') || cmd.includes('chalu') ? true : cmd.includes('off') || cmd.includes('bandh') ? false : null;
-    if (intent === null) return false;
+    // Group commands: ALL LIGHTS
+    if (cmd.includes('all light') || cmd.includes('badhi light') || cmd.includes('sab light') || cmd.includes('every light')) {
+      const lights = [0, 2, 4, 5, 7];
+      lights.forEach(idx => handleSetRelay(idx, intent, true));
+      const talkback = {
+        en: `Turning ${intent ? 'on' : 'off'} all lights`,
+        gu: `બધી લાઇટો ${intent ? 'ચાલુ' : 'બંધ'}`,
+        hi: `सभी लाइटें ${intent ? 'चालू' : 'बंद'} कर दी गई हैं`
+      };
+      speak(talkback[lang]);
+      log(`✓ All Lights ${intent ? 'ON' : 'OFF'}`);
+      return true;
+    }
 
-    const items: [string, number][] = [
-      ['bedroom fan', 1], ['bedroom light', 0], ['balcony', 2], ['hall fan', 3], ['hall light', 4],
-      ['kitchen fan', 6], ['kitchen light', 5], ['bathroom', 7], ['fridge', 8], ['ac', 9], ['pump', 10]
+    // Group commands: ALL FANS
+    if (cmd.includes('all fan') || cmd.includes('badha pankha') || cmd.includes('sab pankhe') || cmd.includes('every fan')) {
+      const fans = [1, 3, 6];
+      fans.forEach(idx => handleSetRelay(idx, intent, true));
+      const talkback = {
+        en: `Turning ${intent ? 'on' : 'off'} all fans`,
+        gu: `બધા પંખા ${intent ? 'ચાલુ' : 'બંધ'}`,
+        hi: `सभी पंखे ${intent ? 'चालू' : 'बंद'} कर दिए गए हैं`
+      };
+      speak(talkback[lang]);
+      log(`✓ All Fans ${intent ? 'ON' : 'OFF'}`);
+      return true;
+    }
+
+    // Group commands: ALL APPLIANCES
+    if (cmd.includes('all appliance') || cmd.includes('everything') || cmd.includes('badhu') || cmd.includes('sab kuch')) {
+      const apps = [8, 9, 10, 11];
+      apps.forEach(idx => handleSetRelay(idx, intent, true));
+      const talkback = {
+        en: `Turning ${intent ? 'on' : 'off'} all appliances`,
+        gu: `બધા સાધનો ${intent ? 'ચાલુ' : 'બંધ'}`,
+        hi: `सभी उपकरण ${intent ? 'चालू' : 'बंद'} कर दिए गए हैं`
+      };
+      speak(talkback[lang]);
+      log(`✓ All Appliances ${intent ? 'ON' : 'OFF'}`);
+      return true;
+    }
+
+    // Individual appliance mapping (Loose keywords)
+    const items: { keywords: string[], idx: number }[] = [
+      { keywords: ['bedroom fan', 'bedroom pankho', 'bedroom ka pankha', 'bed room fan'], idx: 1 },
+      { keywords: ['bedroom light', 'bedroom ni light', 'bedroom ki light', 'bed room light'], idx: 0 },
+      { keywords: ['balcony'], idx: 2 },
+      { keywords: ['hall fan', 'hall pankho', 'hall ka pankha'], idx: 3 },
+      { keywords: ['hall light', 'hall ni light', 'hall ki light'], idx: 4 },
+      { keywords: ['kitchen fan', 'rasoda pankho', 'rasoi ka pankha'], idx: 6 },
+      { keywords: ['kitchen light', 'rasoda ni light', 'rasoi ki light'], idx: 5 },
+      { keywords: ['bathroom', 'nahva gharni light', 'gusal khane ki light'], idx: 7 },
+      { keywords: ['fridge', 'refrigerator', 'freezer'], idx: 8 },
+      { keywords: ['ac', 'air conditioner', 'coolant'], idx: 9 },
+      { keywords: ['pump', 'motor', 'pani motor'], idx: 10 },
+      { keywords: ['spare', 'extra', 'relay 12'], idx: 11 }
     ];
 
-    for (const [name, idx] of items) {
-      if (cmd.includes(name)) { handleSetRelay(idx, intent); log(`✓ ${applianceNames[idx]} ${intent ? 'ON' : 'OFF'}`); return true; }
+    for (const item of items) {
+      if (item.keywords.some(k => cmd.includes(k))) {
+        handleSetRelay(item.idx, intent);
+        log(`✓ ${applianceNames[item.idx]} ${intent ? 'ON' : 'OFF'}`);
+        return true;
+      }
     }
+
     return false;
-  }, [applianceNames, lang]);
+  }, [applianceNames, lang, handleDoor, handleSetRelay, speak]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.speechSynthesis) {
@@ -219,6 +283,8 @@ export default function Home() {
       if (voices.length > 0) {
         let found;
         if (lang === "gu") found = voices.find(v => v.lang.startsWith("gu"));
+        if (lang === "hi") found = voices.find(v => v.lang.startsWith("hi"));
+        
         if (!found) {
           found = voices.find(v => v.name.includes("Sonia") && v.name.includes("Online")) || 
                   voices.find(v => v.name.includes("Aria") && v.name.includes("Online")) ||
@@ -282,10 +348,16 @@ export default function Home() {
             <h1 className="text-3xl font-bold tracking-tight">Lumina</h1>
             <p className="text-text-secondary text-sm">Smart Home Console</p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => setLang(lang === "en" ? "gu" : "en")} className="glass px-4 py-2 text-xs font-bold hover:text-accent-blue transition-colors">
-              {lang === "en" ? "EN" : "GU"}
-            </button>
+          <div className="flex glass p-1 rounded-xl">
+            {(['en', 'gu', 'hi'] as const).map((l) => (
+              <button 
+                key={l}
+                onClick={() => setLang(l)} 
+                className={`px-3 py-1.5 text-[10px] font-bold transition-all rounded-lg ${lang === l ? 'bg-accent-blue/20 text-accent-blue shadow-[0_0_12px_rgba(0,242,255,0.2)]' : 'text-text-muted hover:text-text-secondary'}`}
+              >
+                {l.toUpperCase()}
+              </button>
+            ))}
           </div>
         </header>
 
